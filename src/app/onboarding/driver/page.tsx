@@ -3,8 +3,9 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { BrandHomeLink } from "@/components/brand-home-link";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Car, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -34,17 +35,7 @@ export default function DriverSetupPage() {
 
       {/* Header */}
       <header className="relative z-10 border-b border-border px-5 py-3.5 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-foreground rounded-sm flex items-center justify-center">
-            <Car className="w-3.5 h-3.5 text-background" />
-          </div>
-          <span
-            className="font-bold text-base text-foreground"
-            style={{ fontFamily: "var(--font-display)", letterSpacing: "-0.02em" }}
-          >
-            ECRP
-          </span>
-        </div>
+        <BrandHomeLink variant="header" />
         <ThemeToggle />
       </header>
 
@@ -121,7 +112,7 @@ export default function DriverSetupPage() {
             </div>
           </div>
 
-          <Link href="/dashboard/driver">
+          <Link href="/driver">
             <Button
               className="w-full gap-2"
               disabled={!isComplete}

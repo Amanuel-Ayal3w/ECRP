@@ -19,9 +19,38 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { useState } from "react";
+import { BrandHomeLink } from "@/components/brand-home-link";
+import AppMap from "@/components/app-map";
+import BottomNav from "@/components/bottom-nav";
+import { useState, useRef, useEffect } from "react";
+import { toast } from "sonner";
 
 type RideStatus = "idle" | "searching" | "matched";
+
+const LOCATIONS = [
+  "Bole Medhanialem",
+  "Bole Atlas",
+  "Meskel Square",
+  "Piazza",
+  "Megenagna",
+  "CMC",
+  "Kazanchis",
+  "Arat Kilo",
+  "Semen Hotel",
+  "Mexico",
+  "Stadium",
+  "Lebu",
+  "Teklehaimanot",
+  "Mercato",
+  "Gotera",
+  "Gerji",
+  "Ayat",
+  "Sarbet",
+  "Olympia",
+  "Aware",
+  "Kolfe",
+  "Asco",
+];
 
 const PAST_RIDES = [
   { id: "r1", from: "Bole Medhanialem", to: "Meskel Square", date: "Apr 10", driver: "Dawit A.", score: 4 },
@@ -29,33 +58,120 @@ const PAST_RIDES = [
   { id: "r3", from: "Kazanchis", to: "Megenagna", date: "Apr 5", driver: "Sara M.", score: 5 },
 ];
 
+function LocationInput({
+  id,
+  icon: Icon,
+  value,
+  onChange,
+  placeholder,
+}: {
+  id: string;
+  icon: React.ElementType;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const suggestions = value.trim().length > 0
+    ? LOCATIONS.filter((l) => l.toLowerCase().includes(value.toLowerCase())).slice(0, 6)
+    : LOCATIONS.slice(0, 6);
+
+  const showDropdown = focused && open;
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setFocused(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div className="relative" ref={wrapRef}>
+      <Icon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none z-10" />
+      <Input
+        id={id}
+        autoComplete="off"
+        placeholder={placeholder}
+        value={value}
+        onFocus={() => { setFocused(true); setOpen(true); }}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); setFocused(false); } }}
+        className="pl-9 bg-input border-border text-foreground placeholder:text-muted-foreground/50"
+        aria-autocomplete="list"
+        aria-expanded={showDropdown}
+        aria-controls={`${id}-list`}
+        role="combobox"
+      />
+      {showDropdown && suggestions.length > 0 && (
+        <ul
+          id={`${id}-list`}
+          role="listbox"
+          className="absolute z-50 top-full left-0 right-0 mt-1 rounded-lg border border-border bg-card shadow-[var(--shadow-elevation-md)] overflow-hidden"
+        >
+          {suggestions.map((s) => (
+            <li
+              key={s}
+              role="option"
+              aria-selected={value === s}
+              className="flex items-center gap-2.5 px-3 py-2.5 text-sm text-foreground cursor-pointer hover:bg-secondary transition-colors"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChange(s);
+                setOpen(false);
+                setFocused(false);
+              }}
+            >
+              <MapPin className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              {s}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function PassengerDashboard() {
   const [pickup, setPickup] = useState("");
   const [destination, setDestination] = useState("");
   const [status, setStatus] = useState<RideStatus>("idle");
 
   const handleSearch = () => {
-    if (!pickup.trim() || !destination.trim()) return;
+    if (!pickup.trim() || !destination.trim()) {
+      toast.error("Please fill in both pickup and destination.");
+      return;
+    }
+    if (pickup.trim() === destination.trim()) {
+      toast.error("Pickup and destination cannot be the same.");
+      return;
+    }
     setStatus("searching");
-    setTimeout(() => setStatus("matched"), 2500);
+    toast("Searching for drivers…", { description: `${pickup} → ${destination}` });
+    setTimeout(() => {
+      setStatus("matched");
+      toast.success("Driver found!", { description: "Dawit Alemu is 4 min away." });
+    }, 2500);
   };
 
   const handleCancel = () => {
     setStatus("idle");
     setPickup("");
     setDestination("");
+    toast("Ride request cancelled.");
   };
 
   return (
     <main className="min-h-screen bg-background flex flex-col max-w-md mx-auto">
       {/* Top Nav */}
       <header className="sticky top-0 z-20 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-foreground rounded-sm flex items-center justify-center">
-            <Car className="w-4 h-4 text-background" />
-          </div>
-          <span className="font-semibold tracking-tight text-foreground text-sm">ECRP</span>
-        </div>
+        <BrandHomeLink variant="nav" />
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-xs border-border text-muted-foreground font-normal">
             Passenger
@@ -67,25 +183,21 @@ export default function PassengerDashboard() {
         </div>
       </header>
 
-      {/* Map placeholder */}
-      <div className="relative w-full h-52 bg-secondary flex items-center justify-center overflow-hidden">
-        <div
-          className="absolute inset-0"
-          style={{
-            backgroundImage: `linear-gradient(oklch(1 0 0 / 5%) 1px, transparent 1px),
-              linear-gradient(90deg, oklch(1 0 0 / 5%) 1px, transparent 1px)`,
-            backgroundSize: "24px 24px",
-          }}
+      {/* Map — inset to match card width */}
+      <div className="px-5 pt-5">
+        <AppMap
+          heightClass="h-72"
+          zoom={13}
+          className="rounded-xl overflow-hidden border border-border"
+          markers={
+            status === "matched"
+              ? [
+                  { id: "pickup", lngLat: [38.7685, 9.0161], color: "#ffffff" },
+                  { id: "dest",   lngLat: [38.7611, 9.0054], color: "#888888" },
+                ]
+              : []
+          }
         />
-        <div className="relative z-10 text-center">
-          <Navigation className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-          <p className="text-xs text-muted-foreground">Map loads here</p>
-          <p className="text-xs text-muted-foreground/50">(Gebeta Maps)</p>
-        </div>
-        {/* Pin decorations */}
-        <div className="absolute top-6 left-10 w-3 h-3 rounded-full bg-foreground/20 border border-foreground/40" />
-        <div className="absolute bottom-8 right-16 w-2 h-2 rounded-full bg-foreground/30" />
-        <div className="absolute top-12 right-24 w-4 h-4 rounded-full border border-foreground/20" />
       </div>
 
       <div className="flex-1 flex flex-col px-5 py-5 gap-5">
@@ -96,30 +208,26 @@ export default function PassengerDashboard() {
               Request a Ride
             </p>
 
-            <div className="flex flex-col gap-3 mb-4">
-              <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Pickup location"
-                  value={pickup}
-                  onChange={(e) => setPickup(e.target.value)}
-                  className="pl-9 bg-input border-border text-foreground placeholder:text-muted-foreground/50"
-                />
-              </div>
+            <div className="flex flex-col gap-2 mb-4">
+              <LocationInput
+                id="pickup"
+                icon={MapPin}
+                value={pickup}
+                onChange={setPickup}
+                placeholder="Pickup location"
+              />
               <div className="flex items-center gap-2 px-3">
                 <div className="w-px flex-1 bg-border" />
                 <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground" />
                 <div className="w-px flex-1 bg-border" />
               </div>
-              <div className="relative">
-                <Navigation className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Destination"
-                  value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
-                  className="pl-9 bg-input border-border text-foreground placeholder:text-muted-foreground/50"
-                />
-              </div>
+              <LocationInput
+                id="destination"
+                icon={Navigation}
+                value={destination}
+                onChange={setDestination}
+                placeholder="Destination"
+              />
             </div>
 
             <Button
@@ -140,7 +248,7 @@ export default function PassengerDashboard() {
               <p className="text-xs text-muted-foreground tracking-widest uppercase">
                 Finding drivers…
               </p>
-              <button onClick={handleCancel}>
+              <button onClick={handleCancel} aria-label="Cancel search">
                 <X className="w-4 h-4 text-muted-foreground hover:text-foreground transition-colors" />
               </button>
             </div>
@@ -174,7 +282,7 @@ export default function PassengerDashboard() {
                   Waiting for acceptance
                 </Badge>
               </div>
-              <button onClick={handleCancel}>
+              <button onClick={handleCancel} aria-label="Cancel ride">
                 <X className="w-4 h-4 text-muted-foreground hover:text-foreground transition-colors" />
               </button>
             </div>
@@ -269,6 +377,8 @@ export default function PassengerDashboard() {
           </div>
         </div>
       </div>
+
+      <BottomNav role="passenger" />
     </main>
   );
 }

@@ -9,7 +9,6 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import {
   Bell,
-  Car,
   Check,
   CheckCircle,
   Clock,
@@ -21,15 +20,135 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { BrandHomeLink } from "@/components/brand-home-link";
+import AppMap from "@/components/app-map";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { useState } from "react";
+import BottomNav from "@/components/bottom-nav";
+import { useState, useRef, useEffect } from "react";
+import { toast } from "sonner";
 
 type DriverStatus = "offline" | "online" | "incoming";
+
+/* Popular Addis Ababa locations for autocomplete */
+const LOCATIONS = [
+  "Bole Medhanialem",
+  "Bole Atlas",
+  "Meskel Square",
+  "Piazza",
+  "Megenagna",
+  "CMC",
+  "Kazanchis",
+  "Arat Kilo",
+  "Semen Hotel",
+  "Mexico",
+  "Stadium",
+  "Lebu",
+  "Akaki",
+  "Kaliti",
+  "Teklehaimanot",
+  "Mercato",
+  "Gotera",
+  "Gerji",
+  "Ayat",
+  "Sarbet",
+  "Olympia",
+  "Aware",
+  "Kolfe",
+  "Kality",
+  "Asco",
+];
 
 const TRIPS = [
   { id: "t1", passenger: "Sara M.", from: "Bole", to: "Meskel Square", time: "Today, 8:20 AM", score: 5 },
   { id: "t2", passenger: "Abel K.", from: "CMC", to: "Stadium", time: "Yesterday", score: 4 },
 ];
+
+function LocationInput({
+  label,
+  icon: Icon,
+  value,
+  onChange,
+  placeholder,
+  id,
+}: {
+  label: string;
+  icon: React.ElementType;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  id: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const suggestions = value.trim().length > 0
+    ? LOCATIONS.filter((l) => l.toLowerCase().includes(value.toLowerCase())).slice(0, 6)
+    : LOCATIONS.slice(0, 6);
+
+  const showDropdown = focused && open;
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setFocused(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div className="flex flex-col gap-1.5" ref={wrapRef}>
+      <Label htmlFor={id} className="text-xs text-muted-foreground uppercase tracking-wider">
+        {label}
+      </Label>
+      <div className="relative">
+        <Icon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none z-10" />
+        <Input
+          id={id}
+          autoComplete="off"
+          placeholder={placeholder}
+          value={value}
+          onFocus={() => { setFocused(true); setOpen(true); }}
+          onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+          onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); setFocused(false); } }}
+          className="pl-9 bg-input border-border text-foreground placeholder:text-muted-foreground/50"
+          aria-autocomplete="list"
+          aria-expanded={showDropdown}
+          aria-controls={`${id}-list`}
+          role="combobox"
+        />
+        {showDropdown && suggestions.length > 0 && (
+          <ul
+            id={`${id}-list`}
+            role="listbox"
+            className="absolute z-50 top-full left-0 right-0 mt-1 rounded-lg border border-border bg-card shadow-[var(--shadow-elevation-md)] overflow-hidden"
+          >
+            {suggestions.map((s) => (
+              <li
+                key={s}
+                role="option"
+                aria-selected={value === s}
+                className="flex items-center gap-2.5 px-3 py-2.5 text-sm text-foreground cursor-pointer hover:bg-secondary transition-colors"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange(s);
+                  setOpen(false);
+                  setFocused(false);
+                }}
+              >
+                <MapPin className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                {s}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function DriverDashboard() {
   const [driverStatus, setDriverStatus] = useState<DriverStatus>("offline");
@@ -38,18 +157,32 @@ export default function DriverDashboard() {
   const [routeSaved, setRouteSaved] = useState(false);
 
   const handleSaveRoute = () => {
-    if (routeStart.trim() && routeEnd.trim()) {
-      setRouteSaved(true);
+    if (!routeStart.trim() || !routeEnd.trim()) {
+      toast.error("Please fill in both start and end points.");
+      return;
     }
+    if (routeStart.trim() === routeEnd.trim()) {
+      toast.error("Start and end points cannot be the same.");
+      return;
+    }
+    setRouteSaved(true);
+    toast.success("Route saved!", {
+      description: `${routeStart} → ${routeEnd}`,
+    });
   };
 
   const toggleOnline = () => {
-    if (!routeSaved) return;
+    if (!routeSaved) {
+      toast.warning("Set your route first before going online.");
+      return;
+    }
     if (driverStatus === "offline") {
       setDriverStatus("online");
+      toast("You're now online", { description: "Scanning for passengers on your route…" });
       setTimeout(() => setDriverStatus("incoming"), 4000);
     } else {
       setDriverStatus("offline");
+      toast("You're now offline");
     }
   };
 
@@ -57,12 +190,7 @@ export default function DriverDashboard() {
     <main className="min-h-screen bg-background flex flex-col max-w-md mx-auto">
       {/* Top Nav */}
       <header className="sticky top-0 z-20 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-foreground rounded-sm flex items-center justify-center">
-            <Car className="w-4 h-4 text-background" />
-          </div>
-          <span className="font-semibold tracking-tight text-foreground text-sm">ECRP</span>
-        </div>
+        <BrandHomeLink variant="nav" />
         <div className="flex items-center gap-3">
           {driverStatus !== "offline" && (
             <span className="flex items-center gap-1.5 text-xs text-foreground">
@@ -80,37 +208,21 @@ export default function DriverDashboard() {
         </div>
       </header>
 
-      {/* Map */}
-      <div className="relative w-full h-48 bg-secondary flex items-center justify-center overflow-hidden">
-        <div
-          className="absolute inset-0"
-          style={{
-            backgroundImage: `linear-gradient(oklch(1 0 0 / 5%) 1px, transparent 1px),
-              linear-gradient(90deg, oklch(1 0 0 / 5%) 1px, transparent 1px)`,
-            backgroundSize: "24px 24px",
-          }}
+      {/* Map — inset to match card width */}
+      <div className="px-5 pt-5">
+        <AppMap
+          heightClass="h-72"
+          zoom={12}
+          className="rounded-xl overflow-hidden border border-border"
+          markers={
+            routeSaved
+              ? [
+                  { id: "start", lngLat: [38.7685, 9.0161], color: "#ffffff" },
+                  { id: "end",   lngLat: [38.7869, 9.0372], color: "#888888" },
+                ]
+              : []
+          }
         />
-        {routeSaved && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-2/3 h-px bg-foreground/20 relative">
-              <div className="absolute left-0 -top-1 w-2 h-2 rounded-full bg-foreground" />
-              <div className="absolute right-0 -top-1 w-2 h-2 rounded-full border border-foreground" />
-              <div
-                className={`absolute left-0 -top-1 h-2 rounded-full bg-foreground/60 transition-all duration-1000 ${
-                  driverStatus !== "offline" ? "w-1/2" : "w-0"
-                }`}
-              />
-            </div>
-          </div>
-        )}
-        <div className="relative z-10 text-center">
-          {!routeSaved && (
-            <>
-              <Navigation className="w-7 h-7 text-muted-foreground mx-auto mb-1.5" />
-              <p className="text-xs text-muted-foreground">Set your route to activate map</p>
-            </>
-          )}
-        </div>
       </div>
 
       <div className="flex-1 flex flex-col px-5 py-5 gap-5 overflow-y-auto pb-8">
@@ -128,10 +240,10 @@ export default function DriverDashboard() {
 
             <button
               onClick={toggleOnline}
-              disabled={!routeSaved}
+              aria-label={driverStatus !== "offline" ? "Go offline" : "Go online"}
               className={`relative w-14 h-7 rounded-full transition-all duration-300 ${
                 driverStatus !== "offline" ? "bg-foreground" : "bg-secondary border border-border"
-              } ${!routeSaved ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+              } cursor-pointer`}
             >
               <span
                 className={`absolute top-1 w-5 h-5 rounded-full transition-all duration-300 ${
@@ -195,7 +307,7 @@ export default function DriverDashboard() {
               <Button
                 variant="outline"
                 className="flex-1 gap-1.5 border-border"
-                onClick={() => setDriverStatus("online")}
+                onClick={() => { setDriverStatus("online"); toast("Ride declined"); }}
               >
                 <X className="w-4 h-4" />
                 Decline
@@ -223,34 +335,22 @@ export default function DriverDashboard() {
           </div>
 
           <div className="flex flex-col gap-3 mb-4">
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs text-muted-foreground uppercase tracking-wider">
-                Start Point
-              </Label>
-              <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Your starting location"
-                  value={routeStart}
-                  onChange={(e) => { setRouteStart(e.target.value); setRouteSaved(false); }}
-                  className="pl-9 bg-input border-border text-foreground placeholder:text-muted-foreground/50"
-                />
-              </div>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs text-muted-foreground uppercase tracking-wider">
-                End Point
-              </Label>
-              <div className="relative">
-                <Navigation className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Your destination"
-                  value={routeEnd}
-                  onChange={(e) => { setRouteEnd(e.target.value); setRouteSaved(false); }}
-                  className="pl-9 bg-input border-border text-foreground placeholder:text-muted-foreground/50"
-                />
-              </div>
-            </div>
+            <LocationInput
+              id="route-start"
+              label="Start Point"
+              icon={MapPin}
+              value={routeStart}
+              onChange={(v) => { setRouteStart(v); setRouteSaved(false); }}
+              placeholder="Your starting location"
+            />
+            <LocationInput
+              id="route-end"
+              label="End Point"
+              icon={Navigation}
+              value={routeEnd}
+              onChange={(v) => { setRouteEnd(v); setRouteSaved(false); }}
+              placeholder="Your destination"
+            />
           </div>
 
           <Button
@@ -337,6 +437,8 @@ export default function DriverDashboard() {
           ECRP · Driver Dashboard · v1.0
         </p>
       </div>
+
+      <BottomNav role="driver" />
     </main>
   );
 }

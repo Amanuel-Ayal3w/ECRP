@@ -29,6 +29,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 /* ─── Data ─────────────────────────────────────────────── */
@@ -95,7 +96,11 @@ function SidebarContent({
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
-      <div className="px-5 py-5 border-b border-border flex items-center gap-2.5">
+      <Link
+        href="/"
+        className="px-5 py-5 border-b border-border flex items-center gap-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 hover:bg-secondary/40 transition-colors"
+        aria-label="ECRP home"
+      >
         <div className="w-7 h-7 bg-foreground rounded-sm flex items-center justify-center flex-shrink-0">
           <Car className="w-3.5 h-3.5 text-background" />
         </div>
@@ -105,7 +110,7 @@ function SidebarContent({
           </p>
           <p className="text-[10px] text-muted-foreground mt-0.5">Admin Console</p>
         </div>
-      </div>
+      </Link>
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 flex flex-col gap-0.5">

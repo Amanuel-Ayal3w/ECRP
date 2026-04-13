@@ -1,10 +1,18 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useTheme } from "next-themes";
-import { Car, Menu, Shield, Users, X, Zap } from "lucide-react";
+import { Car, ChevronRight, Menu, Shield, Users, X, Zap } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 const NAV_LINKS = [
@@ -13,7 +21,70 @@ const NAV_LINKS = [
   { label: "Safety",       href: "#how-it-works" },
 ];
 
-function LandingHeader() {
+function RoleAuthDialog({
+  open,
+  onOpenChange,
+  mode,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  mode: "signin" | "signup";
+}) {
+  const router = useRouter();
+  const go = (as: "passenger" | "driver") => {
+    onOpenChange(false);
+    const path = mode === "signin" ? "/login" : "/signup";
+    router.push(`${path}?as=${as}`);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-card border-border max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="text-foreground">
+            {mode === "signin" ? "Sign in as" : "Sign up as"}
+          </DialogTitle>
+          <DialogDescription className="text-muted-foreground text-sm leading-relaxed">
+            Pick how you use ECRP. You can update this later in your profile.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2 pt-1">
+          <Button
+            type="button"
+            className="w-full h-12 justify-between gap-2 px-4 font-medium"
+            onClick={() => go("passenger")}
+          >
+            <span className="flex items-center gap-2.5">
+              <Users className="w-4 h-4 shrink-0" />
+              Passenger
+            </span>
+            <ChevronRight className="w-4 h-4 opacity-50" />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full h-12 justify-between gap-2 px-4 font-medium border-border"
+            onClick={() => go("driver")}
+          >
+            <span className="flex items-center gap-2.5">
+              <Car className="w-4 h-4 shrink-0" />
+              Driver
+            </span>
+            <ChevronRight className="w-4 h-4 opacity-50" />
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LandingHeader({
+  onSignIn,
+  onSignUp,
+}: {
+  onSignIn: () => void;
+  onSignUp: () => void;
+}) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -63,16 +134,18 @@ function LandingHeader() {
           {/* Actions */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <ThemeToggle />
-            <Link href="/login" className="hidden sm:block">
-              <Button variant="outline" size="sm" className="h-8 px-3 text-xs border-border">
-                Sign In
-              </Button>
-            </Link>
-            <Link href="/login">
-              <Button size="sm" className="h-8 px-3 text-xs font-medium">
-                Get Started
-              </Button>
-            </Link>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="hidden sm:inline-flex h-8 px-3 text-xs border-border"
+              onClick={onSignIn}
+            >
+              Sign In
+            </Button>
+            <Button type="button" size="sm" className="h-8 px-3 text-xs font-medium" onClick={onSignUp}>
+              Get Started
+            </Button>
             {/* Mobile hamburger */}
             <button
               className="md:hidden w-8 h-8 rounded-md border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
@@ -97,12 +170,30 @@ function LandingHeader() {
                 {l.label}
               </Link>
             ))}
-            <div className="pt-3 mt-1 border-t border-border">
-              <Link href="/login" onClick={() => setMenuOpen(false)}>
-                <Button className="w-full h-9 text-sm" size="sm">
-                  Sign In with Telegram
-                </Button>
-              </Link>
+            <div className="pt-3 mt-1 border-t border-border flex flex-col gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full h-9 text-sm border-border"
+                size="sm"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onSignIn();
+                }}
+              >
+                Sign in
+              </Button>
+              <Button
+                type="button"
+                className="w-full h-9 text-sm"
+                size="sm"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onSignUp();
+                }}
+              >
+                Sign up
+              </Button>
             </div>
           </div>
         )}
@@ -175,7 +266,15 @@ function HeroHeading() {
 export default function LandingPage() {
   const { theme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const [rolePicker, setRolePicker] = useState<{
+    open: boolean;
+    mode: "signin" | "signup";
+  }>({ open: false, mode: "signup" });
+
   useEffect(() => setMounted(true), []);
+
+  const openSignIn = () => setRolePicker({ open: true, mode: "signin" });
+  const openSignUp = () => setRolePicker({ open: true, mode: "signup" });
 
   const dotColor = !mounted || theme === "dark"
     ? "oklch(1 0 0 / 15%)"
@@ -205,7 +304,13 @@ export default function LandingPage() {
         }}
       />
 
-      <LandingHeader />
+      <LandingHeader onSignIn={openSignIn} onSignUp={openSignUp} />
+
+      <RoleAuthDialog
+        open={rolePicker.open}
+        mode={rolePicker.mode}
+        onOpenChange={(open) => setRolePicker((s) => ({ ...s, open }))}
+      />
 
       {/* Hero */}
       <section className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 py-20 text-center max-w-2xl mx-auto w-full">
@@ -222,11 +327,9 @@ export default function LandingPage() {
         </p>
 
         <div className="flex flex-col sm:flex-row gap-2.5 w-full max-w-[260px]">
-          <Link href="/login" className="flex-1">
-            <Button className="w-full h-10 text-sm font-medium">
-              Get Started
-            </Button>
-          </Link>
+          <Button type="button" className="w-full h-10 text-sm font-medium flex-1" onClick={openSignUp}>
+            Get Started
+          </Button>
           <Link href="#how-it-works" className="flex-1">
             <Button variant="outline" className="w-full h-10 text-sm border-border">
               How it works
@@ -325,14 +428,16 @@ export default function LandingPage() {
               Ready to join?
             </h2>
             <p className="text-sm text-muted-foreground font-light">
-              Sign in with Telegram and choose your role in under 60 seconds.
+              Create an account or sign in — pick passenger or driver first, then continue.
             </p>
           </div>
-          <Link href="/login" className="flex-shrink-0">
-            <Button className="h-10 px-6 text-sm font-medium">
-              Start Now →
-            </Button>
-          </Link>
+          <Button
+            type="button"
+            className="h-10 px-6 text-sm font-medium flex-shrink-0"
+            onClick={openSignUp}
+          >
+            Start Now →
+          </Button>
         </div>
       </section>
 

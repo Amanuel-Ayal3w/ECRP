@@ -7,7 +7,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Progress } from "@/components/ui/progress";
 import { AlertTriangle, Car, ChevronDown, MapPin, Navigation, Phone, Star, User } from "lucide-react";
 import Link from "next/link";
+import { BrandIconHomeLink } from "@/components/brand-home-link";
 import { ThemeToggle } from "@/components/theme-toggle";
+import AppMap from "@/components/app-map";
 import { useState } from "react";
 
 export default function ActiveTripPage() {
@@ -28,9 +30,7 @@ export default function ActiveTripPage() {
       {/* Header */}
       <header className="sticky top-0 z-20 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-foreground rounded-sm flex items-center justify-center">
-            <Car className="w-4 h-4 text-background" />
-          </div>
+          <BrandIconHomeLink />
           <span className="font-semibold tracking-tight text-foreground text-sm">Live Trip</span>
         </div>
         <div className="flex items-center gap-2">
@@ -45,45 +45,18 @@ export default function ActiveTripPage() {
         </div>
       </header>
 
-      {/* Map */}
-      <div className="relative w-full h-64 bg-secondary flex items-center justify-center overflow-hidden flex-shrink-0">
-        <div
-          className="absolute inset-0"
-          style={{
-            backgroundImage: `linear-gradient(oklch(1 0 0 / 5%) 1px, transparent 1px),
-              linear-gradient(90deg, oklch(1 0 0 / 5%) 1px, transparent 1px)`,
-            backgroundSize: "24px 24px",
-          }}
+      {/* Live Map — inset to match cards */}
+      <div className="px-5 pt-5">
+        <AppMap
+          heightClass="h-72"
+          zoom={14}
+          className="rounded-xl overflow-hidden border border-border"
+          markers={[
+            { id: "pickup", lngLat: [38.7685, 9.0161], color: "#ffffff" },
+            { id: "driver", lngLat: [38.7648, 9.0132], color: "#555555" },
+            { id: "dest",   lngLat: [38.7611, 9.0054], color: "#888888" },
+          ]}
         />
-
-        {/* Animated route line */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-3/4 relative">
-            <div className="h-px bg-foreground/20 w-full" />
-            <div
-              className="absolute top-0 left-0 h-px bg-foreground transition-all duration-1000"
-              style={{ width: `${tripProgress}%` }}
-            />
-            <div className="absolute -top-1.5 left-0 w-3 h-3 rounded-full bg-foreground flex items-center justify-center">
-              <div className="w-1 h-1 rounded-full bg-background" />
-            </div>
-            <div
-              className="absolute -top-2 transition-all duration-1000"
-              style={{ left: `calc(${tripProgress}% - 8px)` }}
-            >
-              <Car className="w-4 h-4 text-foreground" />
-            </div>
-            <div className="absolute -top-1.5 right-0 w-3 h-3 rounded-full border border-foreground" />
-          </div>
-        </div>
-
-        {/* Location labels */}
-        <div className="absolute bottom-4 left-4 text-xs text-muted-foreground bg-card/80 rounded px-2 py-1 backdrop-blur-sm">
-          Bole Medhanialem
-        </div>
-        <div className="absolute bottom-4 right-4 text-xs text-muted-foreground bg-card/80 rounded px-2 py-1 backdrop-blur-sm">
-          Meskel Square
-        </div>
       </div>
 
       {/* Progress bar */}
@@ -172,7 +145,7 @@ export default function ActiveTripPage() {
           Emergency Panic Button
         </Button>
 
-        <Link href="/dashboard/passenger">
+        <Link href="/passenger">
           <Button variant="outline" className="w-full border-border text-muted-foreground gap-1.5 text-sm">
             <ChevronDown className="w-4 h-4" />
             End Trip Early

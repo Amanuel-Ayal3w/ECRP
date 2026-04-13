@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { BrandHomeLink } from "@/components/brand-home-link";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Car, Check, ChevronRight, Clock, MapPin, Shield, Star, Users, Zap } from "lucide-react";
 import Link from "next/link";
@@ -19,17 +20,7 @@ export default function OnboardingPage() {
 
       {/* Header */}
       <header className="relative z-10 border-b border-border px-5 py-3.5 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-foreground rounded-sm flex items-center justify-center">
-            <Car className="w-3.5 h-3.5 text-background" />
-          </div>
-          <span
-            className="font-bold text-base text-foreground"
-            style={{ fontFamily: "var(--font-display)", letterSpacing: "-0.02em" }}
-          >
-            ECRP
-          </span>
-        </div>
+        <BrandHomeLink variant="header" />
         <ThemeToggle />
       </header>
 
@@ -110,7 +101,7 @@ export default function OnboardingPage() {
 
               {/* CTA */}
               <div className="p-5 pt-0">
-                <Link href="/dashboard/passenger">
+                <Link href="/passenger">
                   <Button
                     variant="outline"
                     className="w-full border-border gap-2 font-medium text-sm h-10"
@@ -184,6 +175,10 @@ export default function OnboardingPage() {
             Already have an account?{" "}
             <Link href="/login" className="text-foreground underline underline-offset-2">
               Sign in
+            </Link>
+            {" · "}
+            <Link href="/signup" className="text-foreground underline underline-offset-2">
+              Sign up
             </Link>
           </p>
         </div>

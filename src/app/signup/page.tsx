@@ -9,28 +9,34 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import {
   asQuery,
   parseAuthRole,
-  postLoginPath,
+  postSignupPath,
   telegramPath,
 } from "@/lib/auth-role";
-import { Mail, Send } from "lucide-react";
+import { Mail, Send, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { toast } from "sonner";
 
-function LoginForm() {
+function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const role = parseAuthRole(searchParams.get("as"));
   const q = asQuery(role);
 
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const handleEmailSignIn = (e: React.FormEvent) => {
+  const handleSignup = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = email.trim();
+    if (!name.trim()) {
+      toast.error("Enter your name.");
+      return;
+    }
     if (!trimmed) {
       toast.error("Enter your email address.");
       return;
@@ -40,19 +46,23 @@ function LoginForm() {
       return;
     }
     if (!password) {
-      toast.error("Enter your password.");
+      toast.error("Choose a password.");
       return;
     }
     if (password.length < 8) {
       toast.error("Password must be at least 8 characters.");
       return;
     }
+    if (password !== confirm) {
+      toast.error("Passwords don’t match.");
+      return;
+    }
     setSubmitting(true);
     /* Wire to Better Auth / API when backend is ready */
     setTimeout(() => {
       setSubmitting(false);
-      toast.success("Signed in", { description: "Welcome back to ECRP." });
-      router.push(postLoginPath(role));
+      toast.success("Account created", { description: "Welcome to ECRP." });
+      router.push(postSignupPath(role));
     }, 400);
   };
 
@@ -84,7 +94,7 @@ function LoginForm() {
                   className="text-xl font-bold text-foreground"
                   style={{ fontFamily: "var(--font-display)", letterSpacing: "-0.02em" }}
                 >
-                  Welcome back
+                  Create an account
                 </h1>
                 {role && (
                   <Badge variant="outline" className="text-[10px] border-border capitalize font-normal">
@@ -94,18 +104,36 @@ function LoginForm() {
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed font-light">
                 {role
-                  ? `Sign in as a ${role} with email or Telegram.`
-                  : "Sign in with email or Telegram to access the community ride platform."}
+                  ? `Sign up as a ${role} with email or Telegram.`
+                  : "Sign up with email or Telegram to join the community ride platform."}
               </p>
             </div>
 
-            <form onSubmit={handleEmailSignIn} className="flex flex-col gap-4">
+            <form onSubmit={handleSignup} className="flex flex-col gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="login-email" className="text-xs text-muted-foreground uppercase tracking-wider">
+                <Label htmlFor="signup-name" className="text-xs text-muted-foreground uppercase tracking-wider">
+                  Name
+                </Label>
+                <div className="relative">
+                  <UserRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                  <Input
+                    id="signup-name"
+                    type="text"
+                    name="name"
+                    autoComplete="name"
+                    placeholder="Your full name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="h-11 pl-9 bg-input border-border text-foreground placeholder:text-muted-foreground/50"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="signup-email" className="text-xs text-muted-foreground uppercase tracking-wider">
                   Email
                 </Label>
                 <Input
-                  id="login-email"
+                  id="signup-email"
                   type="email"
                   name="email"
                   autoComplete="email"
@@ -117,32 +145,38 @@ function LoginForm() {
                 />
               </div>
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="login-password" className="text-xs text-muted-foreground uppercase tracking-wider">
-                    Password
-                  </Label>
-                  <button
-                    type="button"
-                    className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
-                    onClick={() => toast.message("Password reset will be available when email auth is connected.")}
-                  >
-                    Forgot?
-                  </button>
-                </div>
+                <Label htmlFor="signup-password" className="text-xs text-muted-foreground uppercase tracking-wider">
+                  Password
+                </Label>
                 <Input
-                  id="login-password"
+                  id="signup-password"
                   type="password"
-                  name="password"
-                  autoComplete="current-password"
-                  placeholder="••••••••"
+                  name="new-password"
+                  autoComplete="new-password"
+                  placeholder="At least 8 characters"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="h-11 bg-input border-border text-foreground placeholder:text-muted-foreground/50"
                 />
               </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="signup-confirm" className="text-xs text-muted-foreground uppercase tracking-wider">
+                  Confirm password
+                </Label>
+                <Input
+                  id="signup-confirm"
+                  type="password"
+                  name="confirm-password"
+                  autoComplete="new-password"
+                  placeholder="Repeat password"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  className="h-11 bg-input border-border text-foreground placeholder:text-muted-foreground/50"
+                />
+              </div>
               <Button type="submit" className="w-full h-11 text-sm font-semibold gap-2" disabled={submitting}>
                 <Mail className="w-3.5 h-3.5" />
-                {submitting ? "Signing in…" : "Sign in with email"}
+                {submitting ? "Creating account…" : "Sign up with email"}
               </Button>
             </form>
 
@@ -163,9 +197,9 @@ function LoginForm() {
             </Link>
 
             <p className="mt-6 text-center text-sm text-muted-foreground">
-              Don&apos;t have an account?{" "}
-              <Link href={`/signup${q}`} className="font-medium text-foreground underline underline-offset-2">
-                Sign up
+              Already have an account?{" "}
+              <Link href={`/login${q}`} className="font-medium text-foreground underline underline-offset-2">
+                Sign in
               </Link>
             </p>
 
@@ -200,7 +234,7 @@ function LoginForm() {
   );
 }
 
-function LoginFallback() {
+function SignupFallback() {
   return (
     <main className="min-h-screen bg-background flex flex-col items-center justify-center px-6">
       <div className="w-10 h-10 bg-foreground rounded-lg animate-pulse" />
@@ -209,10 +243,10 @@ function LoginFallback() {
   );
 }
 
-export default function LoginPage() {
+export default function SignupPage() {
   return (
-    <Suspense fallback={<LoginFallback />}>
-      <LoginForm />
+    <Suspense fallback={<SignupFallback />}>
+      <SignupForm />
     </Suspense>
   );
 }
