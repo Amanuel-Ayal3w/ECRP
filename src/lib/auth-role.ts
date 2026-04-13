@@ -1,9 +1,9 @@
 /** Query param from landing: ?as=passenger | ?as=driver */
 
-export type AuthRole = "passenger" | "driver";
+export type AuthRole = "passenger" | "driver" | "admin";
 
 export function parseAuthRole(value: string | null): AuthRole | null {
-  if (value === "passenger" || value === "driver") return value;
+  if (value === "passenger" || value === "driver" || value === "admin") return value;
   return null;
 }
 

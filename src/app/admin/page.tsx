@@ -4,10 +4,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { authClient, useSession } from "@/lib/auth-client";
+import { isSuperAdmin } from "@/lib/admin-role";
 import {
   Activity,
   AlertTriangle,
@@ -17,6 +20,7 @@ import {
   ChevronRight,
   Clock,
   FileUp,
+  LogOut,
   MapPin,
   Menu,
   Search,
@@ -25,12 +29,15 @@ import {
   TrendingUp,
   Upload,
   User,
+  UserCog,
   Users,
   X,
   Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 
 /* ─── Data ─────────────────────────────────────────────── */
 const ACTIVE_TRIPS = [
@@ -64,12 +71,13 @@ const ACTIVITY = [
   { icon: <CheckCircle className="w-3 h-3" />,  text: "TRP-8801 completed", sub: "Gerji → Bole",       time: "22 min ago" },
 ];
 
-type Section = "overview" | "trips" | "users" | "alerts" | "csv";
+type Section = "overview" | "trips" | "users" | "admins" | "alerts" | "csv";
 
 const NAV = [
   { id: "overview" as Section, label: "Overview",     icon: <Activity className="w-4 h-4" /> },
   { id: "trips"    as Section, label: "Live Trips",   icon: <Car className="w-4 h-4" /> },
   { id: "users"    as Section, label: "Users",        icon: <Users className="w-4 h-4" /> },
+  { id: "admins"   as Section, label: "Admin team",   icon: <UserCog className="w-4 h-4" /> },
   { id: "alerts"   as Section, label: "Alerts",       icon: <AlertTriangle className="w-4 h-4" />, badge: true },
   { id: "csv"      as Section, label: "CSV Import",   icon: <FileUp className="w-4 h-4" /> },
 ];
@@ -93,6 +101,27 @@ function SidebarContent({
   setActive: (s: Section) => void;
   alertCount: number;
 }) {
+  const router = useRouter();
+  const { data: session, isPending: sessionPending } = useSession();
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const adminUser = session?.user;
+  const displayName = adminUser?.name?.trim() || "Administrator";
+  const displayEmail = adminUser?.email ?? "—";
+  const panelRole = (adminUser as { role?: string | null } | undefined)?.role;
+  const roleLabel =
+    panelRole === "super_admin" ? "Super Admin" : panelRole === "admin" ? "Admin" : "";
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await authClient.signOut();
+      router.push("/admin/login");
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -138,16 +167,33 @@ function SidebarContent({
       </nav>
 
       {/* Bottom */}
-      <div className="px-3 py-4 border-t border-border">
+      <div className="px-3 py-4 border-t border-border space-y-2">
         <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-md bg-secondary">
           <div className="w-6 h-6 rounded-full bg-foreground flex items-center justify-center flex-shrink-0">
             <Shield className="w-3 h-3 text-background" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-foreground truncate">Super Admin</p>
-            <p className="text-[10px] text-muted-foreground truncate">admin@ecrp.eth</p>
+            <p className="text-xs font-medium text-foreground truncate">
+              {sessionPending ? "…" : displayName}
+            </p>
+            {roleLabel && (
+              <p className="text-[9px] text-foreground/80 font-medium uppercase tracking-wider mt-0.5">
+                {roleLabel}
+              </p>
+            )}
+            <p className="text-[10px] text-muted-foreground truncate">{displayEmail}</p>
           </div>
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full h-9 justify-center gap-2 text-xs font-medium border-border"
+          disabled={loggingOut || sessionPending}
+          onClick={handleLogout}
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          {loggingOut ? "Signing out…" : "Log out"}
+        </Button>
       </div>
     </div>
   );
@@ -645,12 +691,221 @@ function CsvSection() {
   );
 }
 
+type AdminTeamRow = {
+  id: string;
+  name: string;
+  email: string;
+  role: string | null;
+  createdAt: Date | string;
+};
+
+function AdminTeamSection() {
+  const { data: session } = useSession();
+  const myRole = (session?.user as { role?: string | null })?.role;
+  const canAdd = isSuperAdmin(myRole);
+
+  const [rows, setRows] = useState<AdminTeamRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/admin/admins");
+      if (!r.ok) throw new Error("load");
+      const data = (await r.json()) as { admins?: AdminTeamRow[] };
+      setRows(data.admins ?? []);
+    } catch {
+      toast.error("Could not load admin team.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const n = name.trim();
+    const em = email.trim();
+    if (!n || !em || !password) {
+      toast.error("Fill in name, email, and password.");
+      return;
+    }
+    if (password.length < 8) {
+      toast.error("Password must be at least 8 characters.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const r = await fetch("/api/admin/admins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: n, email: em, password }),
+      });
+      const data = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) {
+        toast.error(data.error ?? "Could not add admin.");
+        return;
+      }
+      toast.success("Admin added", { description: `${em} can sign in at /admin/login.` });
+      setName("");
+      setEmail("");
+      setPassword("");
+      await load();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const formatDate = (d: Date | string) => {
+    try {
+      return new Date(d).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    } catch {
+      return "—";
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-5">
+      {canAdd && (
+        <div className="border border-border rounded-lg bg-card overflow-hidden shadow-[var(--shadow-elevation-sm)] dark:shadow-none">
+          <div className="px-5 py-4 border-b border-border">
+            <p className="font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+              Add admin
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              New accounts get the <span className="text-foreground font-medium">admin</span> role. They can use the
+              console but cannot add other admins.
+            </p>
+          </div>
+          <form onSubmit={handleAdd} className="p-5 flex flex-col gap-4 max-w-md">
+            <div className="space-y-1.5">
+              <Label htmlFor="admin-team-name" className="text-xs text-muted-foreground uppercase tracking-wider">
+                Name
+              </Label>
+              <Input
+                id="admin-team-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoComplete="name"
+                className="h-10 bg-input border-border"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="admin-team-email" className="text-xs text-muted-foreground uppercase tracking-wider">
+                Email
+              </Label>
+              <Input
+                id="admin-team-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                className="h-10 bg-input border-border"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="admin-team-password" className="text-xs text-muted-foreground uppercase tracking-wider">
+                Initial password
+              </Label>
+              <Input
+                id="admin-team-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+                className="h-10 bg-input border-border"
+              />
+            </div>
+            <Button type="submit" className="w-full sm:w-auto h-10" disabled={submitting}>
+              {submitting ? "Adding…" : "Add admin"}
+            </Button>
+          </form>
+        </div>
+      )}
+
+      <div className="border border-border rounded-lg bg-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3">
+          <div>
+            <p className="font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+              Console operators
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {loading ? "Loading…" : `${rows.length} admin${rows.length === 1 ? "" : "s"}`}
+            </p>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-secondary/40">
+                <th className="text-left px-5 py-3 text-xs text-muted-foreground font-medium">Name</th>
+                <th className="text-left px-5 py-3 text-xs text-muted-foreground font-medium">Email</th>
+                <th className="text-left px-5 py-3 text-xs text-muted-foreground font-medium">Role</th>
+                <th className="text-left px-5 py-3 text-xs text-muted-foreground font-medium">Added</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={4} className="px-5 py-10 text-center text-muted-foreground text-sm">
+                    Loading…
+                  </td>
+                </tr>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-5 py-10 text-center text-muted-foreground text-sm">
+                    No admin users yet.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row, i) => (
+                  <tr
+                    key={row.id}
+                    className={`border-b border-border last:border-0 hover:bg-secondary/30 transition-colors ${
+                      i % 2 === 1 ? "bg-secondary/20" : ""
+                    }`}
+                  >
+                    <td className="px-5 py-3.5 font-medium text-foreground">{row.name}</td>
+                    <td className="px-5 py-3.5 text-muted-foreground">{row.email}</td>
+                    <td className="px-5 py-3.5">
+                      <span
+                        className={`inline-flex text-[10px] uppercase tracking-wider font-semibold px-2 py-1 rounded border ${
+                          row.role === "super_admin"
+                            ? "border-foreground bg-foreground text-background"
+                            : "border-border bg-secondary text-foreground"
+                        }`}
+                      >
+                        {row.role === "super_admin" ? "Super Admin" : "Admin"}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
+                      {formatDate(row.createdAt)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Page shell ────────────────────────────────────────── */
 
 const SECTION_TITLES: Record<Section, { title: string; sub: string }> = {
   overview: { title: "Overview",   sub: "Platform health at a glance" },
   trips:    { title: "Live Trips", sub: "All rides currently in progress" },
   users:    { title: "Users",      sub: "Registered passengers and drivers" },
+  admins:   { title: "Admin team",   sub: "Console operators and invitations" },
   alerts:   { title: "Alerts",     sub: "Emergency incidents and resolutions" },
   csv:      { title: "CSV Import", sub: "Traffic authority penalty ingestion" },
 };
@@ -730,6 +985,7 @@ export default function AdminDashboard() {
           {active === "overview" && <OverviewSection alerts={alerts} onResolve={resolveAlert} />}
           {active === "trips"    && <TripsSection />}
           {active === "users"    && <UsersSection />}
+          {active === "admins"   && <AdminTeamSection />}
           {active === "alerts"   && <AlertsSection alerts={alerts} onResolve={resolveAlert} />}
           {active === "csv"      && <CsvSection />}
         </main>

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { authClient } from "@/lib/auth-client";
 import {
   asQuery,
   parseAuthRole,
@@ -30,7 +31,7 @@ function SignupForm() {
   const [confirm, setConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = email.trim();
     if (!name.trim()) {
@@ -58,12 +59,19 @@ function SignupForm() {
       return;
     }
     setSubmitting(true);
-    /* Wire to Better Auth / API when backend is ready */
-    setTimeout(() => {
-      setSubmitting(false);
-      toast.success("Account created", { description: "Welcome to ECRP." });
-      router.push(postSignupPath(role));
-    }, 400);
+    await authClient.signUp.email(
+      { name: name.trim(), email: trimmed, password },
+      {
+        onSuccess: () => {
+          toast.success("Account created", { description: "Welcome to ECRP." });
+          router.push(postSignupPath(role));
+        },
+        onError: (ctx) => {
+          setSubmitting(false);
+          toast.error(ctx.error.message ?? "Sign-up failed. Try again.");
+        },
+      },
+    );
   };
 
   return (

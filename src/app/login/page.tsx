@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { authClient } from "@/lib/auth-client";
 import {
   asQuery,
   parseAuthRole,
@@ -28,7 +29,7 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const handleEmailSignIn = (e: React.FormEvent) => {
+  const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = email.trim();
     if (!trimmed) {
@@ -48,12 +49,19 @@ function LoginForm() {
       return;
     }
     setSubmitting(true);
-    /* Wire to Better Auth / API when backend is ready */
-    setTimeout(() => {
-      setSubmitting(false);
-      toast.success("Signed in", { description: "Welcome back to ECRP." });
-      router.push(postLoginPath(role));
-    }, 400);
+    await authClient.signIn.email(
+      { email: trimmed, password },
+      {
+        onSuccess: () => {
+          toast.success("Signed in", { description: "Welcome back to ECRP." });
+          router.push(postLoginPath(role));
+        },
+        onError: (ctx) => {
+          setSubmitting(false);
+          toast.error(ctx.error.message ?? "Sign-in failed. Try again.");
+        },
+      },
+    );
   };
 
   return (
