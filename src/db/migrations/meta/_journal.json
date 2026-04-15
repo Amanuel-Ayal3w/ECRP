@@ -8,6 +8,13 @@
       "when": 1776263310175,
       "tag": "0000_fair_moonstone",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776270041413,
+      "tag": "0001_exotic_ender_wiggin",
+      "breakpoints": true
     }
   ]
 }
