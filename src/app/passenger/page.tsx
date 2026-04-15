@@ -25,6 +25,7 @@ import BottomNav from "@/components/bottom-nav";
 import ProfileSheet from "@/components/profile-sheet";
 import { usePassengerSession } from "@/lib/auth-client";
 import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 type RideStatus = "idle" | "searching" | "matched";
@@ -165,8 +166,16 @@ function initials(name: string | undefined | null) {
 }
 
 export default function PassengerDashboard() {
-  const { data: session } = usePassengerSession();
+  const { data: session, isPending } = usePassengerSession();
+  const router = useRouter();
   const userInitials = initials(session?.user?.name);
+
+  // Auth guard: redirect to login if no passenger session
+  useEffect(() => {
+    if (!isPending && !session) {
+      router.replace("/login?as=passenger");
+    }
+  }, [isPending, session, router]);
 
   const [pickup, setPickup] = useState("");
   const [destination, setDestination] = useState("");

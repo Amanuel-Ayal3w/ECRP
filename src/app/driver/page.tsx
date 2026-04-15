@@ -171,8 +171,15 @@ function initials(name: string | undefined | null) {
 
 export default function DriverDashboard() {
   const router = useRouter();
-  const { data: session } = useDriverSession();
+  const { data: session, isPending } = useDriverSession();
   const userInitials = initials(session?.user?.name);
+
+  // Auth guard: redirect to login if no driver session
+  useEffect(() => {
+    if (!isPending && !session) {
+      router.replace("/login?as=driver");
+    }
+  }, [isPending, session, router]);
 
   const [driverStatus, setDriverStatus] = useState<DriverStatus>("offline");
   const [routeStart, setRouteStart] = useState("");
@@ -182,6 +189,8 @@ export default function DriverDashboard() {
   const [busy, setBusy] = useState(false);
   const [activeTrip, setActiveTrip] = useState<DriverTrip | null>(null);
   const [historyTrips, setHistoryTrips] = useState<HistoryTrip[]>([]);
+  const [serviceScore, setServiceScore] = useState<number | null>(null);
+  const [tripsCompleted, setTripsCompleted] = useState<number | null>(null);
 
   const fetchHistory = async () => {
     try {
@@ -191,6 +200,19 @@ export default function DriverDashboard() {
     } catch {
       setHistoryTrips([]);
     }
+  };
+
+  const fetchProfile = async () => {
+    try {
+      const res = await fetch("/api/driver/me", { credentials: "include" });
+      const data = (await res.json().catch(() => ({}))) as {
+        user?: { serviceScore?: number; tripsCompleted?: number };
+      };
+      if (data.user) {
+        setServiceScore(data.user.serviceScore ?? 0);
+        setTripsCompleted(data.user.tripsCompleted ?? 0);
+      }
+    } catch { /* silent */ }
   };
 
   const loadDriverState = async () => {
@@ -235,6 +257,7 @@ export default function DriverDashboard() {
   useEffect(() => {
     void loadDriverState();
     void fetchHistory();
+    void fetchProfile();
   }, []);
 
   useEffect(() => {
@@ -544,26 +567,35 @@ export default function DriverDashboard() {
             <p className="text-xs text-muted-foreground tracking-widest uppercase">Service Score</p>
           </div>
 
-          <div className="flex items-end gap-3 mb-3">
-            <span className="text-4xl font-bold tracking-tighter text-foreground">840</span>
-            <span className="text-sm text-muted-foreground mb-1">/ 1000 pts</span>
-          </div>
-
-          <Progress value={84} className="h-1.5 bg-secondary mb-3" />
-
-          <div className="grid grid-cols-3 gap-3 mt-4">
-            {[
-              { label: "Trips", value: "47" },
-              { label: "Avg Rating", value: "4.8" },
-              { label: "This month", value: "+120" },
-            ].map((stat) => (
-              <div key={stat.label} className="text-center p-2 rounded-md bg-secondary">
-                <p className="font-bold text-sm text-foreground">{stat.value}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
+          {serviceScore === null ? (
+            <div className="animate-pulse space-y-2">
+              <div className="h-8 w-24 bg-secondary rounded" />
+              <div className="h-1.5 bg-secondary rounded" />
+            </div>
+          ) : (
+            <>
+              <div className="flex items-end gap-3 mb-3">
+                <span className="text-4xl font-bold tracking-tighter text-foreground">{serviceScore}</span>
+                <span className="text-sm text-muted-foreground mb-1">/ 1000 pts</span>
               </div>
-            ))}
-          </div>
+
+              <Progress value={Math.min(100, (serviceScore / 1000) * 100)} className="h-1.5 bg-secondary mb-3" />
+
+              <div className="grid grid-cols-2 gap-3 mt-4">
+                {[
+                  { label: "Trips Completed", value: String(tripsCompleted ?? 0) },
+                  { label: "Score", value: `${serviceScore} pts` },
+                ].map((stat) => (
+                  <div key={stat.label} className="text-center p-2 rounded-md bg-secondary">
+                    <p className="font-bold text-sm text-foreground">{stat.value}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </Card>
+
 
         {/* Trip history */}
         <div>
