@@ -5,8 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { authClient } from "@/lib/auth-client";
-import { isAdminPanelRole } from "@/lib/admin-role";
+import { adminAuthClient } from "@/lib/auth-client";
 import { Lock, Shield } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -43,22 +42,10 @@ function AdminLoginForm() {
     }
 
     setSubmitting(true);
-    await authClient.signIn.email(
+    await adminAuthClient.signIn.email(
       { email: trimmed, password },
       {
-        onSuccess: async () => {
-          const me = await fetch("/api/admin/me", { credentials: "include" });
-          const data = (await me.json().catch(() => ({}))) as { role?: string | null };
-          const role = data.role;
-          if (!isAdminPanelRole(role)) {
-            await authClient.signOut();
-            setSubmitting(false);
-            toast.error("Access denied", {
-              description:
-                "Your account needs role admin or super_admin. Ask a super admin to fix it in the database.",
-            });
-            return;
-          }
+        onSuccess: () => {
           toast.success("Welcome", { description: "Administrator session started." });
           router.push(redirectTo.startsWith("/admin") ? redirectTo : "/admin");
         },

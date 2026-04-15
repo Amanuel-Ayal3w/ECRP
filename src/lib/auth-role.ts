@@ -14,14 +14,14 @@ export function postLoginPath(role: AuthRole | null): string {
 }
 
 export function postSignupPath(role: AuthRole | null): string {
-  if (role === "driver") return "/onboarding/driver";
-  if (role === "passenger") return "/onboarding";
-  return "/onboarding";
+  if (role === "driver")    return "/driver";
+  if (role === "passenger") return "/passenger";
+  return "/passenger";
 }
 
 export function telegramPath(role: AuthRole | null): string {
-  if (role === "driver") return "/onboarding/driver";
-  return "/onboarding";
+  if (role === "driver") return "/driver";
+  return "/passenger";
 }
 
 export function asQuery(role: AuthRole | null): string {

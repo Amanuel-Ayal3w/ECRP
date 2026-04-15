@@ -1,13 +1,11 @@
-import { auth } from "@/lib/auth";
+import { authAdmin } from "@/lib/auth-admin";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
-/** Returns the current user’s `role` from the server session (source of truth). */
+/** Returns the current admin's role from the server session (source of truth). */
 export async function GET() {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ role: null }, { status: 401 });
-  }
-  const role = session.user.role as string | null | undefined;
+  const session = await authAdmin.api.getSession({ headers: await headers() });
+  if (!session) return NextResponse.json({ role: null }, { status: 401 });
+  const role = (session.user as { role?: string | null }).role;
   return NextResponse.json({ role: role ?? null });
 }

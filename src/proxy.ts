@@ -1,10 +1,10 @@
 import { isAdminPanelRole } from "@/lib/admin-role";
-import { auth } from "@/lib/auth";
+import { authAdmin }     from "@/lib/auth-admin";
+import { authDriver }    from "@/lib/auth-driver";
+import { authPassenger } from "@/lib/auth-passenger";
 import { getSessionCookie } from "better-auth/cookies";
 import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
-
-const PROTECTED = ["/passenger", "/driver", "/trips", "/trip"];
 
 function isAdminLoginPath(pathname: string) {
   return pathname === "/admin/login" || pathname.startsWith("/admin/login/");
@@ -15,45 +15,119 @@ function isAdminProtectedPath(pathname: string) {
   return pathname === "/admin" || pathname.startsWith("/admin/");
 }
 
+/**
+ * Which role owns a given pathname.
+ * "either" means driver OR passenger (shared trip pages).
+ */
+function requiredRoleForPath(
+  pathname: string,
+): "passenger" | "driver" | "either" | null {
+  if (
+    pathname === "/passenger" ||
+    pathname.startsWith("/passenger/") ||
+    pathname === "/trips/passenger" ||
+    pathname.startsWith("/trips/passenger/")
+  )
+    return "passenger";
+
+  if (
+    pathname === "/driver" ||
+    pathname.startsWith("/driver/") ||
+    pathname === "/trips/driver" ||
+    pathname.startsWith("/trips/driver/")
+  )
+    return "driver";
+
+  if (
+    pathname === "/trips" ||
+    pathname.startsWith("/trips/") ||
+    pathname === "/trip" ||
+    pathname.startsWith("/trip/")
+  )
+    return "either";
+
+  return null;
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const h            = await headers();
 
-  const isProtected = PROTECTED.some(
-    (path) => pathname === path || pathname.startsWith(path + "/"),
-  );
+  const roleRequired = requiredRoleForPath(pathname);
+  const isAdminOnly  = isAdminProtectedPath(pathname);
 
-  const isAdminOnly = isAdminProtectedPath(pathname);
+  // ── User-facing protected routes ────────────────────────────────────────────
+  if (roleRequired) {
+    // Determine which cookie prefix to fast-check
+    const cookiePrefix =
+      roleRequired === "driver" ? "ba-driver" :
+      roleRequired === "passenger" ? "ba-passenger" :
+      undefined; // "either" — check both below
 
-  // Fast cookie check for regular protected routes
-  if (isProtected) {
-    const sessionCookie = getSessionCookie(request);
-    if (!sessionCookie) {
-      const loginUrl = new URL("/login", request.url);
-      loginUrl.searchParams.set("redirect", pathname);
-      return NextResponse.redirect(loginUrl);
+    if (cookiePrefix) {
+      const sessionCookie = getSessionCookie(request, { cookiePrefix });
+      if (!sessionCookie) {
+        const loginUrl = new URL("/login", request.url);
+        loginUrl.searchParams.set("redirect", pathname);
+        return NextResponse.redirect(loginUrl);
+      }
+    }
+
+    // Full role-based session validation
+    if (roleRequired === "passenger") {
+      const session = await authPassenger.api.getSession({ headers: h });
+      if (!session) {
+        const loginUrl = new URL("/login", request.url);
+        loginUrl.searchParams.set("redirect", pathname);
+        return NextResponse.redirect(loginUrl);
+      }
+      // Admins who somehow land here → push to admin panel
+      const adminSession = await authAdmin.api.getSession({ headers: h });
+      if (adminSession) return NextResponse.redirect(new URL("/admin", request.url));
+    }
+
+    if (roleRequired === "driver") {
+      const session = await authDriver.api.getSession({ headers: h });
+      if (!session) {
+        const loginUrl = new URL("/login", request.url);
+        loginUrl.searchParams.set("redirect", pathname);
+        return NextResponse.redirect(loginUrl);
+      }
+      const adminSession = await authAdmin.api.getSession({ headers: h });
+      if (adminSession) return NextResponse.redirect(new URL("/admin", request.url));
+    }
+
+    if (roleRequired === "either") {
+      const [passengerSession, driverSession] = await Promise.all([
+        authPassenger.api.getSession({ headers: h }),
+        authDriver.api.getSession({ headers: h }),
+      ]);
+      if (!passengerSession && !driverSession) {
+        const loginUrl = new URL("/login", request.url);
+        loginUrl.searchParams.set("redirect", pathname);
+        return NextResponse.redirect(loginUrl);
+      }
     }
   }
 
-  // Dedicated admin login page — public; admins go straight to dashboard
+  // ── Admin login page ─────────────────────────────────────────────────────────
   if (isAdminLoginPath(pathname)) {
-    const session = await auth.api.getSession({ headers: await headers() });
-    if (isAdminPanelRole(session?.user.role)) {
+    const session = await authAdmin.api.getSession({ headers: h });
+    if (isAdminPanelRole((session?.user as { role?: string } | undefined)?.role)) {
       return NextResponse.redirect(new URL("/admin", request.url));
     }
     return NextResponse.next();
   }
 
-  // Full session + role check for other admin routes
+  // ── Other admin routes ───────────────────────────────────────────────────────
   if (isAdminOnly) {
-    const session = await auth.api.getSession({ headers: await headers() });
-
+    const session = await authAdmin.api.getSession({ headers: h });
     if (!session) {
       const loginUrl = new URL("/admin/login", request.url);
       loginUrl.searchParams.set("redirect", pathname);
       return NextResponse.redirect(loginUrl);
     }
-
-    if (!isAdminPanelRole(session.user.role)) {
+    if (!isAdminPanelRole((session.user as { role?: string }).role)) {
       return NextResponse.redirect(new URL("/", request.url));
     }
   }

@@ -22,10 +22,37 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import AppMap from "@/components/app-map";
 import BottomNav from "@/components/bottom-nav";
+import ProfileSheet from "@/components/profile-sheet";
+import { usePassengerSession } from "@/lib/auth-client";
 import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 
 type RideStatus = "idle" | "searching" | "matched";
+
+type RideRecord = {
+  id: string;
+  pickup: string;
+  destination: string;
+  status: string;
+  createdAt: string;
+};
+
+type RideMatch = {
+  driverId: string;
+  name: string;
+  email: string;
+  routeStart: string | null;
+  routeEnd: string | null;
+  score: number;
+};
+
+type HistoryTrip = {
+  id: string;
+  pickup: string;
+  destination: string;
+  status: string;
+  endedAt: string | null;
+};
 
 const LOCATIONS = [
   "Bole Medhanialem",
@@ -50,12 +77,6 @@ const LOCATIONS = [
   "Aware",
   "Kolfe",
   "Asco",
-];
-
-const PAST_RIDES = [
-  { id: "r1", from: "Bole Medhanialem", to: "Meskel Square", date: "Apr 10", driver: "Dawit A.", score: 4 },
-  { id: "r2", from: "CMC", to: "Piazza", date: "Apr 8", driver: "Yonas T.", score: 5 },
-  { id: "r3", from: "Kazanchis", to: "Megenagna", date: "Apr 5", driver: "Sara M.", score: 5 },
 ];
 
 function LocationInput({
@@ -138,12 +159,92 @@ function LocationInput({
   );
 }
 
+function initials(name: string | undefined | null) {
+  if (!name) return null;
+  return name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
+}
+
 export default function PassengerDashboard() {
+  const { data: session } = usePassengerSession();
+  const userInitials = initials(session?.user?.name);
+
   const [pickup, setPickup] = useState("");
   const [destination, setDestination] = useState("");
   const [status, setStatus] = useState<RideStatus>("idle");
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [activeRide, setActiveRide] = useState<RideRecord | null>(null);
+  const [match, setMatch] = useState<RideMatch | null>(null);
+  const [historyTrips, setHistoryTrips] = useState<HistoryTrip[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
 
-  const handleSearch = () => {
+  const fetchHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch("/api/trips/history", { credentials: "include" });
+      const data = (await res.json().catch(() => ({}))) as { trips?: HistoryTrip[] };
+      setHistoryTrips(data.trips ?? []);
+    } catch {
+      setHistoryTrips([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const refreshMatch = async (rideId: string) => {
+    try {
+      const res = await fetch(`/api/rides/matches?rideId=${encodeURIComponent(rideId)}`, {
+        credentials: "include",
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { matches?: RideMatch[] };
+      setMatch(data.matches?.[0] ?? null);
+    } catch {
+      // ignore transient polling failures
+    }
+  };
+
+  const loadActiveTrip = async () => {
+    try {
+      const res = await fetch("/api/trips/active", { credentials: "include" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { trip?: RideRecord | null; actor?: string };
+      const trip = data.trip ?? null;
+      setActiveRide(trip);
+
+      if (!trip) {
+        setStatus("idle");
+        setMatch(null);
+        return;
+      }
+
+      setPickup(trip.pickup);
+      setDestination(trip.destination);
+
+      if (trip.status === "requested") setStatus("searching");
+      if (trip.status === "matched" || trip.status === "accepted" || trip.status === "in_progress") {
+        setStatus("matched");
+        await refreshMatch(trip.id);
+      }
+    } catch {
+      // no-op
+    }
+  };
+
+  useEffect(() => {
+    void loadActiveTrip();
+    void fetchHistory();
+  }, []);
+
+  useEffect(() => {
+    if (status !== "searching" || !activeRide) return;
+    const timer = window.setInterval(() => {
+      void loadActiveTrip();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [status, activeRide]);
+
+  const handleSearch = async () => {
     if (!pickup.trim() || !destination.trim()) {
       toast.error("Please fill in both pickup and destination.");
       return;
@@ -152,19 +253,66 @@ export default function PassengerDashboard() {
       toast.error("Pickup and destination cannot be the same.");
       return;
     }
-    setStatus("searching");
-    toast("Searching for drivers…", { description: `${pickup} → ${destination}` });
-    setTimeout(() => {
-      setStatus("matched");
-      toast.success("Driver found!", { description: "Dawit Alemu is 4 min away." });
-    }, 2500);
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/rides/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ pickup: pickup.trim(), destination: destination.trim() }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ride?: RideRecord;
+        matched?: boolean;
+        error?: string;
+      };
+
+      if (!res.ok || !data.ride) {
+        toast.error(data.error ?? "Failed to request ride.");
+        return;
+      }
+
+      setActiveRide(data.ride);
+      if (data.matched) {
+        setStatus("matched");
+        toast.success("Driver candidates found.");
+        await refreshMatch(data.ride.id);
+      } else {
+        setStatus("searching");
+        setMatch(null);
+        toast("Searching for drivers…", { description: `${pickup} → ${destination}` });
+      }
+      await fetchHistory();
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
+    if (!activeRide) {
+      setStatus("idle");
+      setPickup("");
+      setDestination("");
+      return;
+    }
+
+    const res = await fetch(`/api/trips/${activeRide.id}/cancel`, {
+      method: "POST",
+      credentials: "include",
+    });
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      toast.error(data.error ?? "Could not cancel ride.");
+      return;
+    }
+
     setStatus("idle");
+    setActiveRide(null);
+    setMatch(null);
     setPickup("");
     setDestination("");
     toast("Ride request cancelled.");
+    await fetchHistory();
   };
 
   return (
@@ -177,11 +325,21 @@ export default function PassengerDashboard() {
             Passenger
           </Badge>
           <ThemeToggle />
-          <button className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
-            <User className="w-4 h-4 text-foreground" />
+          <button
+            className="w-8 h-8 rounded-full bg-foreground flex items-center justify-center hover:opacity-80 transition-opacity"
+            onClick={() => setProfileOpen(true)}
+            aria-label="Open profile"
+          >
+            {userInitials ? (
+              <span className="text-[11px] font-bold text-background leading-none">{userInitials}</span>
+            ) : (
+              <User className="w-4 h-4 text-background" />
+            )}
           </button>
         </div>
       </header>
+
+      <ProfileSheet open={profileOpen} onOpenChange={setProfileOpen} role="passenger" />
 
       {/* Map — inset to match card width */}
       <div className="px-5 pt-5">
@@ -233,10 +391,10 @@ export default function PassengerDashboard() {
             <Button
               className="w-full gap-2"
               onClick={handleSearch}
-              disabled={!pickup.trim() || !destination.trim()}
+              disabled={!pickup.trim() || !destination.trim() || submitting}
             >
               <Search className="w-4 h-4" />
-              Find a Driver
+              {submitting ? "Requesting…" : "Find a Driver"}
             </Button>
           </Card>
         )}
@@ -265,7 +423,7 @@ export default function PassengerDashboard() {
               ))}
             </div>
             <p className="text-xs text-muted-foreground text-center mt-4 animate-pulse">
-              Matching with nearby drivers…
+              Matching with nearby drivers… this refreshes automatically.
             </p>
           </Card>
         )}
@@ -293,20 +451,22 @@ export default function PassengerDashboard() {
               </div>
               <div className="flex-1">
                 <p className="font-semibold text-sm text-foreground">Dawit Alemu</p>
-                <p className="text-xs text-muted-foreground">Toyota Corolla · AA 3-45678</p>
+                <p className="text-xs text-muted-foreground">
+                  {match ? `${match.email} · route ${match.routeStart ?? "-"} → ${match.routeEnd ?? "-"}` : "Driver details pending"}
+                </p>
                 <div className="flex items-center gap-1 mt-1">
                   {[1, 2, 3, 4, 5].map((s) => (
                     <Star
                       key={s}
-                      className={`w-3 h-3 ${s <= 4 ? "text-foreground fill-foreground" : "text-muted-foreground"}`}
+                      className={`w-3 h-3 ${s <= (match ? 4 : 3) ? "text-foreground fill-foreground" : "text-muted-foreground"}`}
                     />
                   ))}
-                  <span className="text-xs text-muted-foreground ml-1">4.8</span>
+                    <span className="text-xs text-muted-foreground ml-1">{match ? "4.0" : "3.0"}</span>
                 </div>
               </div>
               <div className="text-right">
                 <p className="text-xs text-muted-foreground">ETA</p>
-                <p className="font-bold text-foreground">4 min</p>
+                <p className="font-bold text-foreground">{match ? "5 min" : "--"}</p>
               </div>
             </div>
 
@@ -326,7 +486,7 @@ export default function PassengerDashboard() {
               </div>
             </div>
 
-            <Link href="/trip/demo-trip-id">
+            <Link href={activeRide ? `/trip/${activeRide.id}` : "/trip"}>
               <Button className="w-full" size="sm">
                 View Live Trip
               </Button>
@@ -342,7 +502,12 @@ export default function PassengerDashboard() {
           </div>
 
           <div className="flex flex-col gap-2">
-            {PAST_RIDES.map((ride) => (
+            {!historyLoading && historyTrips.length === 0 && (
+              <div className="text-xs text-muted-foreground border border-border bg-card rounded-lg p-3">
+                No completed or cancelled trips yet.
+              </div>
+            )}
+            {historyTrips.map((ride) => (
               <div
                 key={ride.id}
                 className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card"
@@ -352,21 +517,21 @@ export default function PassengerDashboard() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium text-foreground truncate">
-                    {ride.from} → {ride.to}
+                    {ride.pickup} → {ride.destination}
                   </p>
-                  <p className="text-xs text-muted-foreground">{ride.driver}</p>
+                  <p className="text-xs text-muted-foreground">{ride.status}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
                     <Clock className="w-3 h-3" />
-                    {ride.date}
+                    {ride.endedAt ? new Date(ride.endedAt).toLocaleDateString() : "-"}
                   </p>
                   <div className="flex items-center justify-end gap-0.5 mt-0.5">
                     {[1, 2, 3, 4, 5].map((s) => (
                       <Star
                         key={s}
                         className={`w-2.5 h-2.5 ${
-                          s <= ride.score ? "text-foreground fill-foreground" : "text-muted-foreground"
+                          s <= (ride.status === "completed" ? 4 : 2) ? "text-foreground fill-foreground" : "text-muted-foreground"
                         }`}
                       />
                     ))}

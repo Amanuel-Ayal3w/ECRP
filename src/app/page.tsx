@@ -80,10 +80,8 @@ function RoleAuthDialog({
 
 function LandingHeader({
   onSignIn,
-  onSignUp,
 }: {
   onSignIn: () => void;
-  onSignUp: () => void;
 }) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -132,20 +130,11 @@ function LandingHeader({
           </nav>
 
           {/* Actions */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <ThemeToggle />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="hidden sm:inline-flex h-8 px-3 text-xs border-border"
-              onClick={onSignIn}
-            >
-              Sign In
-            </Button>
-            <Button type="button" size="sm" className="h-8 px-3 text-xs font-medium" onClick={onSignUp}>
-              Get Started
-            </Button>
+           <div className="flex items-center gap-2 flex-shrink-0">
+             <ThemeToggle />
+             <Button type="button" size="sm" className="h-8 px-3 text-xs font-medium" onClick={onSignIn}>
+               Sign In
+             </Button>
             {/* Mobile hamburger */}
             <button
               className="md:hidden w-8 h-8 rounded-md border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
@@ -173,26 +162,14 @@ function LandingHeader({
             <div className="pt-3 mt-1 border-t border-border flex flex-col gap-2">
               <Button
                 type="button"
-                variant="outline"
-                className="w-full h-9 text-sm border-border"
+                className="w-full h-9 text-sm"
                 size="sm"
                 onClick={() => {
                   setMenuOpen(false);
                   onSignIn();
                 }}
               >
-                Sign in
-              </Button>
-              <Button
-                type="button"
-                className="w-full h-9 text-sm"
-                size="sm"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onSignUp();
-                }}
-              >
-                Sign up
+                Sign In
               </Button>
             </div>
           </div>
@@ -274,7 +251,6 @@ export default function LandingPage() {
   useEffect(() => setMounted(true), []);
 
   const openSignIn = () => setRolePicker({ open: true, mode: "signin" });
-  const openSignUp = () => setRolePicker({ open: true, mode: "signup" });
 
   const dotColor = !mounted || theme === "dark"
     ? "oklch(1 0 0 / 15%)"
@@ -304,7 +280,7 @@ export default function LandingPage() {
         }}
       />
 
-      <LandingHeader onSignIn={openSignIn} onSignUp={openSignUp} />
+      <LandingHeader onSignIn={openSignIn} />
 
       <RoleAuthDialog
         open={rolePicker.open}
@@ -327,8 +303,8 @@ export default function LandingPage() {
         </p>
 
         <div className="flex flex-col sm:flex-row gap-2.5 w-full max-w-[260px]">
-          <Button type="button" className="w-full h-10 text-sm font-medium flex-1" onClick={openSignUp}>
-            Get Started
+          <Button type="button" className="w-full h-10 text-sm font-medium flex-1" onClick={openSignIn}>
+            Sign In
           </Button>
           <Link href="#how-it-works" className="flex-1">
             <Button variant="outline" className="w-full h-10 text-sm border-border">
@@ -434,9 +410,9 @@ export default function LandingPage() {
           <Button
             type="button"
             className="h-10 px-6 text-sm font-medium flex-shrink-0"
-            onClick={openSignUp}
+            onClick={openSignIn}
           >
-            Start Now →
+            Sign In →
           </Button>
         </div>
       </section>

@@ -6,11 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { authClient } from "@/lib/auth-client";
+import { driverAuthClient, passengerAuthClient } from "@/lib/auth-client";
 import {
   asQuery,
   parseAuthRole,
-  postLoginPath,
   telegramPath,
 } from "@/lib/auth-role";
 import { Mail, Send } from "lucide-react";
@@ -48,13 +47,17 @@ function LoginForm() {
       toast.error("Password must be at least 8 characters.");
       return;
     }
+    // Choose client based on the role context (?as=passenger or ?as=driver)
+    const client = role === "driver" ? driverAuthClient : passengerAuthClient;
+    const dest   = role === "driver" ? "/driver" : "/passenger";
+
     setSubmitting(true);
-    await authClient.signIn.email(
+    await client.signIn.email(
       { email: trimmed, password },
       {
         onSuccess: () => {
           toast.success("Signed in", { description: "Welcome back to ECRP." });
-          router.push(postLoginPath(role));
+          router.push(dest);
         },
         onError: (ctx) => {
           setSubmitting(false);

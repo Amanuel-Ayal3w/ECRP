@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { authClient } from "@/lib/auth-client";
+import { driverAuthClient, passengerAuthClient } from "@/lib/auth-client";
 import {
   asQuery,
   parseAuthRole,
@@ -58,13 +58,16 @@ function SignupForm() {
       toast.error("Passwords don’t match.");
       return;
     }
+    const client = role === "driver" ? driverAuthClient : passengerAuthClient;
+    const dest   = role === "driver" ? "/driver" : "/passenger";
+
     setSubmitting(true);
-    await authClient.signUp.email(
+    await client.signUp.email(
       { name: name.trim(), email: trimmed, password },
       {
         onSuccess: () => {
           toast.success("Account created", { description: "Welcome to ECRP." });
-          router.push(postSignupPath(role));
+          router.push(dest);
         },
         onError: (ctx) => {
           setSubmitting(false);

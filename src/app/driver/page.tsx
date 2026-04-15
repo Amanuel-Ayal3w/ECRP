@@ -24,10 +24,21 @@ import { BrandHomeLink } from "@/components/brand-home-link";
 import AppMap from "@/components/app-map";
 import { ThemeToggle } from "@/components/theme-toggle";
 import BottomNav from "@/components/bottom-nav";
+import ProfileSheet from "@/components/profile-sheet";
+import { useDriverSession } from "@/lib/auth-client";
 import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 
 type DriverStatus = "offline" | "online" | "incoming";
+
+type DriverTrip = {
+  id: string;
+  pickup: string;
+  destination: string;
+  passengerId: string;
+  status: string;
+};
 
 /* Popular Addis Ababa locations for autocomplete */
 const LOCATIONS = [
@@ -58,10 +69,13 @@ const LOCATIONS = [
   "Asco",
 ];
 
-const TRIPS = [
-  { id: "t1", passenger: "Sara M.", from: "Bole", to: "Meskel Square", time: "Today, 8:20 AM", score: 5 },
-  { id: "t2", passenger: "Abel K.", from: "CMC", to: "Stadium", time: "Yesterday", score: 4 },
-];
+type HistoryTrip = {
+  id: string;
+  pickup: string;
+  destination: string;
+  status: string;
+  endedAt: string | null;
+};
 
 function LocationInput({
   label,
@@ -150,13 +164,88 @@ function LocationInput({
   );
 }
 
+function initials(name: string | undefined | null) {
+  if (!name) return null;
+  return name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
+}
+
 export default function DriverDashboard() {
+  const router = useRouter();
+  const { data: session } = useDriverSession();
+  const userInitials = initials(session?.user?.name);
+
   const [driverStatus, setDriverStatus] = useState<DriverStatus>("offline");
   const [routeStart, setRouteStart] = useState("");
   const [routeEnd, setRouteEnd] = useState("");
   const [routeSaved, setRouteSaved] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [activeTrip, setActiveTrip] = useState<DriverTrip | null>(null);
+  const [historyTrips, setHistoryTrips] = useState<HistoryTrip[]>([]);
 
-  const handleSaveRoute = () => {
+  const fetchHistory = async () => {
+    try {
+      const res = await fetch("/api/trips/history", { credentials: "include" });
+      const data = (await res.json().catch(() => ({}))) as { trips?: HistoryTrip[] };
+      setHistoryTrips(data.trips ?? []);
+    } catch {
+      setHistoryTrips([]);
+    }
+  };
+
+  const loadDriverState = async () => {
+    try {
+      const [routeRes, availabilityRes, activeTripRes] = await Promise.all([
+        fetch("/api/driver/route", { credentials: "include" }),
+        fetch("/api/driver/availability", { credentials: "include" }),
+        fetch("/api/trips/active", { credentials: "include" }),
+      ]);
+
+      const routeData = (await routeRes.json().catch(() => ({}))) as {
+        route?: { routeStart?: string | null; routeEnd?: string | null };
+      };
+      const availabilityData = (await availabilityRes.json().catch(() => ({}))) as {
+        availability?: { isOnline?: boolean };
+      };
+      const activeTripData = (await activeTripRes.json().catch(() => ({}))) as {
+        trip?: DriverTrip | null;
+      };
+
+      const savedStart = routeData.route?.routeStart ?? "";
+      const savedEnd = routeData.route?.routeEnd ?? "";
+      setRouteStart(savedStart);
+      setRouteEnd(savedEnd);
+      setRouteSaved(Boolean(savedStart && savedEnd));
+
+      const trip = activeTripData.trip ?? null;
+      setActiveTrip(trip);
+
+      if (trip?.status === "matched") {
+        setDriverStatus("incoming");
+      } else if (availabilityData.availability?.isOnline) {
+        setDriverStatus("online");
+      } else {
+        setDriverStatus("offline");
+      }
+    } catch {
+      // ignore transient fetch issues
+    }
+  };
+
+  useEffect(() => {
+    void loadDriverState();
+    void fetchHistory();
+  }, []);
+
+  useEffect(() => {
+    if (driverStatus === "offline") return;
+    const timer = window.setInterval(() => {
+      void loadDriverState();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [driverStatus]);
+
+  const handleSaveRoute = async () => {
     if (!routeStart.trim() || !routeEnd.trim()) {
       toast.error("Please fill in both start and end points.");
       return;
@@ -165,24 +254,97 @@ export default function DriverDashboard() {
       toast.error("Start and end points cannot be the same.");
       return;
     }
-    setRouteSaved(true);
-    toast.success("Route saved!", {
-      description: `${routeStart} → ${routeEnd}`,
-    });
+    setBusy(true);
+    try {
+      const res = await fetch("/api/driver/route", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ routeStart: routeStart.trim(), routeEnd: routeEnd.trim() }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        toast.error(data.error ?? "Could not save route.");
+        return;
+      }
+      setRouteSaved(true);
+      toast.success("Route saved!", { description: `${routeStart} → ${routeEnd}` });
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const toggleOnline = () => {
+  const toggleOnline = async () => {
     if (!routeSaved) {
       toast.warning("Set your route first before going online.");
       return;
     }
-    if (driverStatus === "offline") {
-      setDriverStatus("online");
-      toast("You're now online", { description: "Scanning for passengers on your route…" });
-      setTimeout(() => setDriverStatus("incoming"), 4000);
-    } else {
-      setDriverStatus("offline");
-      toast("You're now offline");
+
+    const nextOnline = driverStatus === "offline";
+    setBusy(true);
+    try {
+      const res = await fetch("/api/driver/availability", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ isOnline: nextOnline }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        toast.error(data.error ?? "Could not update status.");
+        return;
+      }
+
+      if (nextOnline) {
+        setDriverStatus("online");
+        toast("You're now online", { description: "Scanning for passengers on your route…" });
+      } else {
+        setDriverStatus("offline");
+        toast("You're now offline");
+      }
+      await loadDriverState();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!activeTrip) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/rides/${activeTrip.id}/reject`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        toast.error(data.error ?? "Could not decline ride.");
+        return;
+      }
+      toast("Ride declined");
+      await loadDriverState();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleAccept = async () => {
+    if (!activeTrip) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/rides/${activeTrip.id}/accept`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        toast.error(data.error ?? "Could not accept ride.");
+        return;
+      }
+      toast.success("Ride accepted");
+      router.push(`/trip/${activeTrip.id}`);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -202,11 +364,21 @@ export default function DriverDashboard() {
             Driver
           </Badge>
           <ThemeToggle />
-          <button className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
-            <User className="w-4 h-4 text-foreground" />
+          <button
+            className="w-8 h-8 rounded-full bg-foreground flex items-center justify-center hover:opacity-80 transition-opacity"
+            onClick={() => setProfileOpen(true)}
+            aria-label="Open profile"
+          >
+            {userInitials ? (
+              <span className="text-[11px] font-bold text-background leading-none">{userInitials}</span>
+            ) : (
+              <User className="w-4 h-4 text-background" />
+            )}
           </button>
         </div>
       </header>
+
+      <ProfileSheet open={profileOpen} onOpenChange={setProfileOpen} role="driver" />
 
       {/* Map — inset to match card width */}
       <div className="px-5 pt-5">
@@ -240,6 +412,7 @@ export default function DriverDashboard() {
 
             <button
               onClick={toggleOnline}
+              disabled={busy}
               aria-label={driverStatus !== "offline" ? "Go offline" : "Go online"}
               className={`relative w-14 h-7 rounded-full transition-all duration-300 ${
                 driverStatus !== "offline" ? "bg-foreground" : "bg-secondary border border-border"
@@ -273,7 +446,7 @@ export default function DriverDashboard() {
         </Card>
 
         {/* Incoming ride request */}
-        {driverStatus === "incoming" && (
+        {driverStatus === "incoming" && activeTrip && (
           <Card className="bg-card border-2 border-foreground p-5">
             <div className="flex items-center gap-2 mb-4">
               <Bell className="w-4 h-4 text-foreground" />
@@ -286,20 +459,20 @@ export default function DriverDashboard() {
                 <User className="w-5 h-5 text-foreground" />
               </div>
               <div>
-                <p className="font-semibold text-sm text-foreground">Meron Tadesse</p>
-                <p className="text-xs text-muted-foreground">★ 4.9 · 12 trips</p>
+                <p className="font-semibold text-sm text-foreground">Passenger {activeTrip.passengerId.slice(0, 8)}</p>
+                <p className="text-xs text-muted-foreground">Matched request</p>
               </div>
             </div>
 
             <div className="flex flex-col gap-2 mb-5 text-xs bg-secondary rounded-lg p-3">
               <div className="flex items-center gap-2 text-foreground">
                 <MapPin className="w-3 h-3" />
-                <span>Bole Medhanialem</span>
+                <span>{activeTrip.pickup}</span>
               </div>
               <div className="pl-[5px] ml-[3px] border-l border-dashed border-border h-3" />
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Navigation className="w-3 h-3" />
-                <span>Meskel Square</span>
+                <span>{activeTrip.destination}</span>
               </div>
             </div>
 
@@ -307,17 +480,18 @@ export default function DriverDashboard() {
               <Button
                 variant="outline"
                 className="flex-1 gap-1.5 border-border"
-                onClick={() => { setDriverStatus("online"); toast("Ride declined"); }}
+                onClick={handleReject}
+                disabled={busy}
               >
                 <X className="w-4 h-4" />
                 Decline
               </Button>
-              <Link href="/trip/demo-trip-id" className="flex-1">
-                <Button className="w-full gap-1.5">
+              <div className="flex-1">
+                <Button className="w-full gap-1.5" onClick={handleAccept} disabled={busy}>
                   <Check className="w-4 h-4" />
                   Accept
                 </Button>
-              </Link>
+              </div>
             </div>
           </Card>
         )}
@@ -357,7 +531,7 @@ export default function DriverDashboard() {
             variant={routeSaved ? "outline" : "default"}
             className="w-full"
             onClick={handleSaveRoute}
-            disabled={!routeStart.trim() || !routeEnd.trim()}
+            disabled={!routeStart.trim() || !routeEnd.trim() || busy}
           >
             {routeSaved ? "Update Route" : "Save Route"}
           </Button>
@@ -399,7 +573,12 @@ export default function DriverDashboard() {
           </div>
 
           <div className="flex flex-col gap-2">
-            {TRIPS.map((t) => (
+            {historyTrips.length === 0 && (
+              <div className="text-xs text-muted-foreground border border-border bg-card rounded-lg p-3">
+                No completed or cancelled trips yet.
+              </div>
+            )}
+            {historyTrips.map((t) => (
               <div
                 key={t.id}
                 className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card"
@@ -409,18 +588,20 @@ export default function DriverDashboard() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium text-foreground truncate">
-                    {t.from} → {t.to}
+                    {t.pickup} → {t.destination}
                   </p>
-                  <p className="text-xs text-muted-foreground">{t.passenger}</p>
+                  <p className="text-xs text-muted-foreground">{t.status}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="text-xs text-muted-foreground">{t.time}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t.endedAt ? new Date(t.endedAt).toLocaleDateString() : "-"}
+                  </p>
                   <div className="flex items-center justify-end gap-0.5 mt-0.5">
                     {[1, 2, 3, 4, 5].map((s) => (
                       <Star
                         key={s}
                         className={`w-2.5 h-2.5 ${
-                          s <= t.score ? "text-foreground fill-foreground" : "text-muted-foreground"
+                          s <= (t.status === "completed" ? 4 : 2) ? "text-foreground fill-foreground" : "text-muted-foreground"
                         }`}
                       />
                     ))}

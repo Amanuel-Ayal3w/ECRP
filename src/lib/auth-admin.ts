@@ -1,0 +1,40 @@
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { nextCookies } from "better-auth/next-js";
+import { betterAuth } from "better-auth";
+import { db } from "@/db";
+import * as adminSchema from "@/db/schema-admin";
+
+export const authAdmin = betterAuth({
+  database: drizzleAdapter(db, { provider: "pg", schema: adminSchema }),
+
+  basePath: "/api/admin-auth",
+
+  advanced: {
+    cookiePrefix: "ba-admin",
+  },
+
+  emailAndPassword: {
+    enabled: true,
+    minPasswordLength: 8,
+  },
+
+  user: {
+    additionalFields: {
+      role: {
+        type: "string",
+        required: false,
+        defaultValue: "admin",
+        input: true,
+      },
+    },
+  },
+
+  session: {
+    expiresIn: 60 * 60 * 24 * 7,
+    updateAge: 60 * 60 * 24,
+  },
+
+  plugins: [nextCookies()],
+});
+
+export type AdminSession = typeof authAdmin.$Infer.Session;
