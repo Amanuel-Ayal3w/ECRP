@@ -22,6 +22,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const role = parseAuthRole(searchParams.get("as"));
+  const redirect = searchParams.get("redirect");
   const q = asQuery(role);
 
   const [email, setEmail] = useState("");
@@ -166,7 +167,7 @@ function LoginForm() {
               </div>
             </div>
 
-            <Link href={telegramPath(role)}>
+            <Link href={telegramPath(role, redirect)}>
               <Button variant="outline" className="w-full h-11 text-sm font-semibold gap-2 border-border">
                 <Send className="w-3.5 h-3.5" />
                 Continue with Telegram

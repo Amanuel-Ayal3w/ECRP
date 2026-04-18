@@ -18,7 +18,6 @@ import {
   CheckCircle,
   ChevronRight,
   Clock,
-  FileUp,
   LogOut,
   MapPin,
   Menu,
@@ -26,18 +25,16 @@ import {
   Shield,
   TrendingDown,
   TrendingUp,
-  Upload,
   User,
   UserCog,
   Users,
-  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-type Section = "overview" | "trips" | "users" | "admins" | "alerts" | "csv";
+type Section = "overview" | "trips" | "users" | "admins" | "alerts";
 
 type AdminStat = {
   label: string;
@@ -96,24 +93,12 @@ type AdminRow = {
   createdAt: string | Date;
 };
 
-type PenaltyJob = {
-  id: string;
-  fileName: string;
-  status: string;
-  totalRows: number;
-  processedRows: number;
-  affectedDrivers: number;
-  errorMessage: string | null;
-  createdAt: string | Date;
-};
-
 const NAV: Array<{ id: Section; label: string; icon: React.ReactNode; badge?: boolean }> = [
   { id: "overview", label: "Overview", icon: <Activity className="w-4 h-4" /> },
   { id: "trips", label: "Live Trips", icon: <Car className="w-4 h-4" /> },
   { id: "users", label: "Users", icon: <Users className="w-4 h-4" /> },
   { id: "admins", label: "Admin Team", icon: <UserCog className="w-4 h-4" /> },
   { id: "alerts", label: "Alerts", icon: <AlertTriangle className="w-4 h-4" />, badge: true },
-  { id: "csv", label: "CSV Import", icon: <FileUp className="w-4 h-4" /> },
 ];
 
 const SECTION_TITLES: Record<Section, { title: string; sub: string }> = {
@@ -122,7 +107,6 @@ const SECTION_TITLES: Record<Section, { title: string; sub: string }> = {
   users: { title: "Users", sub: "Drivers and passengers" },
   admins: { title: "Admin Team", sub: "Console access management" },
   alerts: { title: "Alerts", sub: "Emergency incidents and response" },
-  csv: { title: "CSV Import", sub: "Penalty ingestion and processing jobs" },
 };
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -256,22 +240,15 @@ export default function AdminDashboardPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [admins, setAdmins] = useState<AdminRow[]>([]);
-  const [jobs, setJobs] = useState<PenaltyJob[]>([]);
 
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [tripsLoading, setTripsLoading] = useState(true);
   const [usersLoading, setUsersLoading] = useState(true);
   const [alertsLoading, setAlertsLoading] = useState(true);
   const [adminsLoading, setAdminsLoading] = useState(true);
-  const [jobsLoading, setJobsLoading] = useState(true);
 
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<"All" | "Driver" | "Passenger">("All");
-
-  const [csvFile, setCsvFile] = useState<File | null>(null);
-  const [uploadingCsv, setUploadingCsv] = useState(false);
-  const [processingCsv, setProcessingCsv] = useState(false);
-  const [selectedJobId, setSelectedJobId] = useState<string>("");
 
   const [newAdminName, setNewAdminName] = useState("");
   const [newAdminEmail, setNewAdminEmail] = useState("");
@@ -342,24 +319,9 @@ export default function AdminDashboardPage() {
     }
   }, []);
 
-  const loadJobs = useCallback(async () => {
-    setJobsLoading(true);
-    try {
-      const data = await requestJson<{ jobs: PenaltyJob[] }>("/api/admin/penalties/jobs");
-      setJobs(data.jobs ?? []);
-      if (!selectedJobId && data.jobs?.length) {
-        setSelectedJobId(data.jobs[0].id);
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not load penalty jobs.");
-    } finally {
-      setJobsLoading(false);
-    }
-  }, [selectedJobId]);
-
   useEffect(() => {
-    void Promise.all([loadOverview(), loadTrips(), loadUsers(), loadAlerts(), loadAdmins(), loadJobs()]);
-  }, [loadOverview, loadTrips, loadUsers, loadAlerts, loadAdmins, loadJobs]);
+    void Promise.all([loadOverview(), loadTrips(), loadUsers(), loadAlerts(), loadAdmins()]);
+  }, [loadOverview, loadTrips, loadUsers, loadAlerts, loadAdmins]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -370,11 +332,10 @@ export default function AdminDashboardPage() {
       if (active === "users") void loadUsers();
       if (active === "alerts") void loadAlerts();
       if (active === "admins") void loadAdmins();
-      if (active === "csv") void loadJobs();
     }, 10000);
 
     return () => window.clearInterval(timer);
-  }, [active, loadOverview, loadTrips, loadUsers, loadAlerts, loadAdmins, loadJobs]);
+  }, [active, loadOverview, loadTrips, loadUsers, loadAlerts, loadAdmins]);
 
   const resolveAlert = async (id: string) => {
     try {
@@ -413,55 +374,6 @@ export default function AdminDashboardPage() {
       toast.error(error instanceof Error ? error.message : "Could not create admin.");
     } finally {
       setCreatingAdmin(false);
-    }
-  };
-
-  const uploadCsv = async () => {
-    if (!csvFile) {
-      toast.error("Select a CSV file first.");
-      return;
-    }
-
-    setUploadingCsv(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", csvFile);
-      const data = await requestJson<{ job: PenaltyJob }>("/api/admin/penalties/upload-csv", {
-        method: "POST",
-        body: formData,
-      });
-      toast.success("CSV uploaded.");
-      setSelectedJobId(data.job.id);
-      setCsvFile(null);
-      await loadJobs();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "CSV upload failed.");
-    } finally {
-      setUploadingCsv(false);
-    }
-  };
-
-  const processCsv = async () => {
-    if (!selectedJobId) {
-      toast.error("Select a job to process.");
-      return;
-    }
-
-    setProcessingCsv(true);
-    try {
-      const data = await requestJson<{ affectedDrivers: number; totalRows: number }>("/api/admin/penalties/process", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: selectedJobId }),
-      });
-      toast.success("CSV processing finished.", {
-        description: `${data.affectedDrivers} drivers updated from ${data.totalRows} rows.`,
-      });
-      await Promise.all([loadJobs(), loadUsers()]);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "CSV processing failed.");
-    } finally {
-      setProcessingCsv(false);
     }
   };
 
@@ -929,98 +841,6 @@ export default function AdminDashboardPage() {
             </div>
           )}
 
-          {active === "csv" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <div className="border border-border rounded-lg bg-card overflow-hidden">
-                <div className="px-5 py-4 border-b border-border">
-                  <p className="font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>Upload Penalty CSV</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Upload authority file and process deductions.</p>
-                </div>
-                <div className="p-5 flex flex-col gap-4">
-                  <div className="border-2 border-dashed border-border rounded-lg p-6 text-center">
-                    <Upload className="w-7 h-7 text-muted-foreground mx-auto mb-3" />
-                    {csvFile ? (
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{csvFile.name}</p>
-                        <p className="text-xs text-muted-foreground mt-1">{(csvFile.size / 1024).toFixed(1)} KB</p>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">Choose CSV file (.csv)</p>
-                    )}
-                    <input
-                      type="file"
-                      accept=".csv,text/csv"
-                      className="mt-4 text-xs"
-                      onChange={(e) => setCsvFile(e.target.files?.[0] ?? null)}
-                    />
-                  </div>
-
-                  <Button className="w-full gap-2" onClick={uploadCsv} disabled={!csvFile || uploadingCsv}>
-                    <FileUp className="w-4 h-4" />
-                    {uploadingCsv ? "Uploading…" : "Upload CSV"}
-                  </Button>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="job-select" className="text-xs text-muted-foreground uppercase tracking-wider">Select Job</Label>
-                    <select
-                      id="job-select"
-                      value={selectedJobId}
-                      onChange={(e) => setSelectedJobId(e.target.value)}
-                      className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
-                    >
-                      <option value="">Choose uploaded job</option>
-                      {jobs.map((j) => (
-                        <option key={j.id} value={j.id}>{j.fileName} ({j.status})</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <Button className="w-full gap-2" onClick={processCsv} disabled={!selectedJobId || processingCsv}>
-                    <Upload className="w-4 h-4" />
-                    {processingCsv ? "Processing…" : "Process Selected Job"}
-                  </Button>
-                </div>
-              </div>
-
-              <div className="border border-border rounded-lg bg-card overflow-hidden">
-                <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-                  <p className="font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>Import Jobs</p>
-                  <Button size="sm" variant="outline" onClick={() => void loadJobs()}>Refresh</Button>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-border bg-secondary/40">
-                        <th className="text-left px-4 py-2.5 text-muted-foreground font-medium">File</th>
-                        <th className="text-left px-4 py-2.5 text-muted-foreground font-medium">Status</th>
-                        <th className="text-left px-4 py-2.5 text-muted-foreground font-medium">Rows</th>
-                        <th className="text-left px-4 py-2.5 text-muted-foreground font-medium">Affected</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {jobs.map((j, i) => (
-                        <tr key={j.id} className={`border-b border-border last:border-0 ${i % 2 === 1 ? "bg-secondary/20" : ""}`}>
-                          <td className="px-4 py-3">
-                            <p className="text-foreground truncate max-w-[180px]">{j.fileName}</p>
-                            <p className="text-[10px] text-muted-foreground">{formatDate(j.createdAt)}</p>
-                            {j.errorMessage && <p className="text-[10px] text-red-500 mt-1">{j.errorMessage}</p>}
-                          </td>
-                          <td className="px-4 py-3 uppercase tracking-wider text-[10px] font-semibold text-muted-foreground">{j.status}</td>
-                          <td className="px-4 py-3 tabular-nums text-muted-foreground">{j.processedRows}/{j.totalRows}</td>
-                          <td className="px-4 py-3 tabular-nums text-foreground">{j.affectedDrivers}</td>
-                        </tr>
-                      ))}
-                      {!jobsLoading && jobs.length === 0 && (
-                        <tr>
-                          <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">No import jobs yet.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
         </main>
       </div>
     </div>

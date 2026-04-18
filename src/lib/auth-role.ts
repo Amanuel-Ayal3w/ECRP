@@ -19,9 +19,14 @@ export function postSignupPath(role: AuthRole | null): string {
   return "/passenger";
 }
 
-export function telegramPath(role: AuthRole | null): string {
-  if (role === "driver") return "/driver";
-  return "/passenger";
+export function telegramPath(role: AuthRole | null, redirect?: string | null): string {
+  const params = new URLSearchParams();
+
+  if (role) params.set("as", role);
+  if (redirect) params.set("redirect", redirect);
+
+  const query = params.toString();
+  return query ? `/telegram-auth?${query}` : "/telegram-auth";
 }
 
 export function asQuery(role: AuthRole | null): string {
