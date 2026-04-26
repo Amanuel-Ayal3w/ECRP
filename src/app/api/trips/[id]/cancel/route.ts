@@ -5,8 +5,8 @@ import { rideRequest } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
-
-const CANCELABLE = new Set(["requested", "matched", "accepted", "in_progress"]);
+import { CANCELABLE_STATUSES, type RideStatus } from "@/lib/state-machine";
+import { writeTripEvent, emitTripEvent } from "@/lib/trip-events";
 
 export async function POST(
   _request: Request,
@@ -34,16 +34,32 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (!CANCELABLE.has(ride.status)) {
+  if (!CANCELABLE_STATUSES.has(ride.status as RideStatus)) {
     return NextResponse.json({ error: "Trip cannot be cancelled in its current state." }, { status: 400 });
   }
 
   const now = new Date();
+  const actorId = passengerSession?.user.id ?? driverSession!.user.id;
+  const actorRole = passengerSession ? "passenger" : "driver";
 
   await db
     .update(rideRequest)
     .set({ status: "cancelled", endedAt: now, updatedAt: now })
     .where(eq(rideRequest.id, id));
+
+  await writeTripEvent({
+    rideId: id,
+    actorId,
+    actorRole,
+    event: "cancel",
+    metadata: { cancelledBy: actorId, previousStatus: ride.status },
+  });
+
+  emitTripEvent({
+    event: "status_change",
+    rideId: id,
+    payload: { status: "cancelled", endedAt: now.toISOString() },
+  });
 
   const [updatedRide] = await db.select().from(rideRequest).where(eq(rideRequest.id, id)).limit(1);
   return NextResponse.json({ trip: updatedRide });

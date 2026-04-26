@@ -4,19 +4,7 @@ import { driverAvailability, driverUser, rideRejection, rideRequest } from "@/db
 import { and, desc, eq, or } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
-
-function scoreRouteMatch(routeStart: string | null, routeEnd: string | null, pickup: string, destination: string) {
-  const start = (routeStart ?? "").toLowerCase();
-  const end = (routeEnd ?? "").toLowerCase();
-  const from = pickup.toLowerCase();
-  const to = destination.toLowerCase();
-
-  let score = 0;
-  if (end.includes(to)) score += 3;
-  if (start.includes(from)) score += 2;
-  if (start && end) score += 1;
-  return score;
-}
+import { rankDriversByDistance } from "@/lib/score-route";
 
 export async function GET(request: Request) {
   const session = await authPassenger.api.getSession({ headers: await headers() });
@@ -62,6 +50,10 @@ export async function GET(request: Request) {
       userId: driverAvailability.userId,
       routeStart: driverAvailability.routeStart,
       routeEnd: driverAvailability.routeEnd,
+      routeStartLat: driverAvailability.routeStartLat,
+      routeStartLng: driverAvailability.routeStartLng,
+      routeEndLat: driverAvailability.routeEndLat,
+      routeEndLng: driverAvailability.routeEndLng,
       name: driverUser.name,
       email: driverUser.email,
     })
@@ -69,17 +61,25 @@ export async function GET(request: Request) {
     .innerJoin(driverUser, eq(driverUser.id, driverAvailability.userId))
     .where(eq(driverAvailability.isOnline, true));
 
-  const matches = onlineDrivers
-    .filter((d) => !rejectedDriverIds.has(d.userId))
-    .map((d) => ({
+  const eligible = onlineDrivers.filter((d) => !rejectedDriverIds.has(d.userId));
+
+  const ranked = await rankDriversByDistance(ride.pickup, eligible);
+
+  // Re-attach name/email from the original eligible list (rankDriversByDistance
+  // only knows about DriverCandidate fields, not the joined user data)
+  const eligibleByUserId = new Map(eligible.map((d) => [d.userId, d]));
+
+  const matches = ranked.map((d) => {
+    const full = eligibleByUserId.get(d.userId);
+    return {
       driverId: d.userId,
-      name: d.name,
-      email: d.email,
+      name: full?.name ?? null,
+      email: full?.email ?? null,
       routeStart: d.routeStart,
       routeEnd: d.routeEnd,
-      score: scoreRouteMatch(d.routeStart, d.routeEnd, ride.pickup, ride.destination),
-    }))
-    .sort((a, b) => b.score - a.score);
+      distanceKm: d.distanceKm === Infinity ? null : Number(d.distanceKm.toFixed(2)),
+    };
+  });
 
   return NextResponse.json({ ride, matches });
 }

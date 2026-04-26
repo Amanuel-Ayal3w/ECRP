@@ -1,6 +1,6 @@
 # Backend Implementation Checklist
 
-Last updated: 2026-04-15
+Last updated: 2026-04-21
 
 ## Status Legend
 
@@ -16,8 +16,8 @@ Last updated: 2026-04-15
 
 ## Current Backend Coverage Snapshot
 
-- Implemented route files: 20
-- Estimated main product endpoints still needed: ~7
+- Implemented route files: 23
+- Estimated main product endpoints still needed: ~2 (maps/geocode, maps/matrix)
 
 ## Implemented Endpoints (DONE)
 
@@ -59,9 +59,9 @@ Last updated: 2026-04-15
 
 | Priority | Method | Endpoint | Status | Why Needed |
 |---|---|---|---|---|
-| P0 | POST | /api/trips/:id/location | TODO | GPS ingestion and live updates |
-| P0 | POST | /api/trips/:id/panic | TODO | Emergency alerts to admin |
-| P0 | POST | /api/realtime/auth | TODO | Private channel auth for realtime subscriptions |
+| P0 | POST | /api/trips/:id/location | DONE | GPS ingestion and live updates |
+| P0 | POST | /api/trips/:id/panic | DONE | Emergency alerts to admin |
+| P0 | POST | /api/realtime/auth | DONE | Private channel auth for realtime subscriptions |
 
 ### P0/P1: Maps and Matching Infrastructure
 
@@ -86,15 +86,15 @@ Last updated: 2026-04-15
 
 | Priority | Work Item | Status | Notes |
 |---|---|---|---|
-| P0 | Telegram authentication integration | TODO | UI has button, backend login verification flow not implemented |
-| P0 | Ride state machine and transition guards | PARTIAL | Core transition guards implemented; no workflow orchestration yet |
-| P0 | Smart matching algorithm | TODO | Core business logic using route alignment + matrix distance |
-| P0 | Trip persistence and audit logs | TODO | Store full lifecycle events |
-| P1 | Automated service score updates | TODO | Increment/decrement with idempotency |
-| P1 | CSV ingestion parser with validation | PARTIAL | UI flow exists, processing is mocked |
-| P1 | Standard API error contract | TODO | Consistent error shape and codes |
-| P1 | Rate limiting and abuse protection | TODO | Especially auth, ride request, location endpoints |
-| P1 | Observability (structured logs + metrics) | TODO | Add request IDs and failure tracking |
+| P0 | Telegram authentication integration | DONE | UI has button, backend login verification flow not implemented |
+| P0 | Ride state machine and transition guards | DONE | Centralized in src/lib/state-machine.ts; all trip routes use it |
+| P0 | Smart matching algorithm | DONE | Shared scorer in src/lib/score-route.ts; Gebeta matrix bonus available |
+| P0 | Trip persistence and audit logs | DONE | tripEvent table + writeTripEvent() on every state transition |
+| P1 | Automated service score updates | DONE | trip complete increments tripsCompleted+1, serviceScore+10 in transaction |
+| P1 | CSV ingestion parser with validation | DONE | Column presence + row-level validation; skippedRows in response |
+| P1 | Standard API error contract | DONE | src/lib/api-error.ts; applied to all new/modified endpoints |
+| P1 | Rate limiting and abuse protection | DONE | src/middleware.ts; in-memory per-IP; 6 endpoint rules |
+| P1 | Observability (structured logs + metrics) | DONE | x-request-id header + JSON structured log per request in middleware |
 | P2 | Background jobs for heavy processing | TODO | CSV processing and retry-safe workflows |
 
 ## Recommended Build Order

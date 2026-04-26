@@ -35,18 +35,18 @@ interface Trip {
 }
 
 const ALL_TRIPS: Trip[] = [
-  { id: "d01", passenger: "Sara M.",   from: "Bole Medhanialem", to: "Meskel Square",  date: "Apr 10", time: "8:20 AM",  duration: "14 min", distance: "3.2 km", passengerScore: 5, status: "completed" },
+  { id: "d01", passenger: "Sara M.",   from: "Mexico",           to: "Meskel Square",  date: "Apr 10", time: "8:20 AM",  duration: "14 min", distance: "3.2 km", passengerScore: 5, status: "completed" },
   { id: "d02", passenger: "Abel K.",   from: "CMC",              to: "Stadium",        date: "Apr 8",  time: "7:55 AM",  duration: "22 min", distance: "6.1 km", passengerScore: 5, status: "completed" },
   { id: "d03", passenger: "Meron T.",  from: "Kazanchis",        to: "Megenagna",      date: "Apr 5",  time: "9:10 AM",  duration: "18 min", distance: "4.8 km", passengerScore: 4, status: "completed" },
   { id: "d04", passenger: "Liya F.",   from: "Sarbet",           to: "Arat Kilo",      date: "Apr 3",  time: "8:05 AM",  duration: "25 min", distance: "5.9 km", passengerScore: 5, status: "completed" },
   { id: "d05", passenger: "Nati S.",   from: "Gerji",            to: "Stadium",        date: "Apr 1",  time: "7:40 AM",  duration: "19 min", distance: "4.4 km", passengerScore: 5, status: "completed" },
-  { id: "d06", passenger: "Hiwot B.",  from: "Ayat",             to: "Bole Atlas",     date: "Mar 28", time: "8:30 AM",  duration: "28 min", distance: "7.2 km", passengerScore: 4, status: "completed" },
+  { id: "d06", passenger: "Hiwot B.",  from: "Ayat",             to: "Sarbet",         date: "Mar 28", time: "8:30 AM",  duration: "28 min", distance: "7.2 km", passengerScore: 4, status: "completed" },
   { id: "d07", passenger: "Abebe G.",  from: "Olympia",          to: "Aware",          date: "Mar 25", time: "9:00 AM",  duration: "11 min", distance: "2.8 km", passengerScore: 5, status: "completed" },
   { id: "d08", passenger: "Selam D.",  from: "Mexico",           to: "Piazza",         date: "Mar 22", time: "8:15 AM",  duration: "20 min", distance: "4.9 km", passengerScore: 0, status: "cancelled" },
   { id: "d09", passenger: "Kiya M.",   from: "Mercato",          to: "Kolfe",          date: "Mar 20", time: "7:50 AM",  duration: "16 min", distance: "3.7 km", passengerScore: 4, status: "completed" },
   { id: "d10", passenger: "Tesfaye W.",from: "Lebu",             to: "Meskel Square",  date: "Mar 18", time: "8:45 AM",  duration: "35 min", distance: "9.4 km", passengerScore: 5, status: "completed" },
   { id: "d11", passenger: "Ruth A.",   from: "Asco",             to: "CMC",            date: "Mar 15", time: "8:00 AM",  duration: "27 min", distance: "6.8 km", passengerScore: 0, status: "cancelled" },
-  { id: "d12", passenger: "Biruk H.",  from: "Teklehaimanot",    to: "Bole Atlas",     date: "Mar 12", time: "9:20 AM",  duration: "32 min", distance: "8.5 km", passengerScore: 4, status: "completed" },
+  { id: "d12", passenger: "Biruk H.",  from: "Teklehaimanot",    to: "Megenagna",      date: "Mar 12", time: "9:20 AM",  duration: "32 min", distance: "8.5 km", passengerScore: 4, status: "completed" },
 ];
 
 type Filter = "all" | "completed" | "cancelled";

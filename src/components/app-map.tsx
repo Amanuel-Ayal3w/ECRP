@@ -55,6 +55,8 @@ export interface AppMapProps {
   center?: [number, number];
   zoom?: number;
   markers?: MarkerDef[];
+  /** Renders a pulsing blue dot at the user's current GPS position */
+  userLocation?: [number, number] | null;
   className?: string;
 }
 
@@ -63,6 +65,7 @@ export default function AppMap({
   center,
   zoom,
   markers,
+  userLocation,
   className = "",
 }: AppMapProps) {
 
@@ -83,6 +86,7 @@ export default function AppMap({
         center={center}
         zoom={zoom}
         markers={markers}
+        userLocation={userLocation}
       />
     </div>
   );

@@ -3,6 +3,7 @@ import {
   boolean,
   integer,
   pgTable,
+  real,
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
@@ -175,11 +176,15 @@ export const driverProfile = pgTable("driver_profile", {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const driverAvailability = pgTable("driver_availability", {
-  userId:      text("userId").primaryKey().references(() => driverUser.id, { onDelete: "cascade" }),
-  isOnline:    boolean("isOnline").notNull().default(false),
-  routeStart:  text("routeStart"),
-  routeEnd:    text("routeEnd"),
-  updatedAt:   timestamp("updatedAt").notNull(),
+  userId:          text("userId").primaryKey().references(() => driverUser.id, { onDelete: "cascade" }),
+  isOnline:        boolean("isOnline").notNull().default(false),
+  routeStart:      text("routeStart"),
+  routeEnd:        text("routeEnd"),
+  routeStartLat:   real("routeStartLat"),
+  routeStartLng:   real("routeStartLng"),
+  routeEndLat:     real("routeEndLat"),
+  routeEndLng:     real("routeEndLng"),
+  updatedAt:       timestamp("updatedAt").notNull(),
 });
 
 export const rideRequest = pgTable("ride_request", {
@@ -192,6 +197,8 @@ export const rideRequest = pgTable("ride_request", {
   acceptedAt:      timestamp("acceptedAt"),
   startedAt:       timestamp("startedAt"),
   endedAt:         timestamp("endedAt"),
+  currentLat:      real("currentLat"),
+  currentLng:      real("currentLng"),
   createdAt:       timestamp("createdAt").notNull(),
   updatedAt:       timestamp("updatedAt").notNull(),
 });
@@ -217,20 +224,6 @@ export const adminAlert = pgTable("admin_alert", {
   updatedAt:     timestamp("updatedAt").notNull(),
 });
 
-export const adminPenaltyJob = pgTable("admin_penalty_job", {
-  id:              text("id").primaryKey(),
-  fileName:        text("fileName").notNull(),
-  filePath:        text("filePath").notNull(),
-  status:          text("status").notNull().default("uploaded"),
-  totalRows:       integer("totalRows").notNull().default(0),
-  processedRows:   integer("processedRows").notNull().default(0),
-  affectedDrivers: integer("affectedDrivers").notNull().default(0),
-  createdBy:       text("createdBy").notNull().references(() => adminUser.id, { onDelete: "cascade" }),
-  errorMessage:    text("errorMessage"),
-  createdAt:       timestamp("createdAt").notNull(),
-  updatedAt:       timestamp("updatedAt").notNull(),
-});
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Driver documents  (linked to driver_user)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -248,4 +241,21 @@ export const driverDocument = pgTable("driver_document", {
   /** pending | verified | rejected */
   status:       text("status").notNull().default("pending"),
   uploadedAt:   timestamp("uploadedAt").notNull(),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trip event audit log
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const tripEvent = pgTable("trip_event", {
+  id:        text("id").primaryKey(),
+  rideId:    text("rideId").notNull().references(() => rideRequest.id, { onDelete: "cascade" }),
+  actorId:   text("actorId").notNull(),
+  /** passenger | driver | system */
+  actorRole: text("actorRole").notNull(),
+  /** match | accept | reject | start | complete | cancel */
+  event:     text("event").notNull(),
+  /** JSON.stringify'd payload — text not jsonb (no SQL filtering needed) */
+  metadata:  text("metadata"),
+  createdAt: timestamp("createdAt").notNull(),
 });

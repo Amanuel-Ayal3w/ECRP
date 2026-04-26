@@ -26,6 +26,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import BottomNav from "@/components/bottom-nav";
 import ProfileSheet from "@/components/profile-sheet";
 import { useDriverSession } from "@/lib/auth-client";
+import { searchPlaces, reverseGeocode } from "@/lib/gebeta";
 import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -40,35 +41,6 @@ type DriverTrip = {
   status: string;
 };
 
-/* Popular Addis Ababa locations for autocomplete */
-const LOCATIONS = [
-  "Bole Medhanialem",
-  "Bole Atlas",
-  "Meskel Square",
-  "Piazza",
-  "Megenagna",
-  "CMC",
-  "Kazanchis",
-  "Arat Kilo",
-  "Semen Hotel",
-  "Mexico",
-  "Stadium",
-  "Lebu",
-  "Akaki",
-  "Kaliti",
-  "Teklehaimanot",
-  "Mercato",
-  "Gotera",
-  "Gerji",
-  "Ayat",
-  "Sarbet",
-  "Olympia",
-  "Aware",
-  "Kolfe",
-  "Kality",
-  "Asco",
-];
-
 type HistoryTrip = {
   id: string;
   pickup: string;
@@ -77,11 +49,14 @@ type HistoryTrip = {
   endedAt: string | null;
 };
 
+type PlaceResult = { name: string; lat: number; lng: number };
+
 function LocationInput({
   label,
   icon: Icon,
   value,
   onChange,
+  onSelect,
   placeholder,
   id,
 }: {
@@ -89,18 +64,36 @@ function LocationInput({
   icon: React.ElementType;
   value: string;
   onChange: (v: string) => void;
+  onSelect?: (place: PlaceResult) => void;
   placeholder: string;
   id: string;
 }) {
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [results, setResults] = useState<Array<{ name: string; lat: number; lng: number }>>([]);
+  const [loading, setLoading] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const suggestions = value.trim().length > 0
-    ? LOCATIONS.filter((l) => l.toLowerCase().includes(value.toLowerCase())).slice(0, 6)
-    : LOCATIONS.slice(0, 6);
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!value.trim() || value.trim().length < 2) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    debounceRef.current = setTimeout(async () => {
+      const places = await searchPlaces(value.trim());
+      setResults(places);
+      setLoading(false);
+    }, 350);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [value]);
 
-  const showDropdown = focused && open;
+  const showDropdown = focused && open && value.trim().length >= 2;
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -134,27 +127,36 @@ function LocationInput({
           aria-controls={`${id}-list`}
           role="combobox"
         />
-        {showDropdown && suggestions.length > 0 && (
+        {showDropdown && (
           <ul
             id={`${id}-list`}
             role="listbox"
             className="absolute z-50 top-full left-0 right-0 mt-1 rounded-lg border border-border bg-card shadow-[var(--shadow-elevation-md)] overflow-hidden"
           >
-            {suggestions.map((s) => (
+            {loading && (
+              <li className="px-3 py-2.5 text-xs text-muted-foreground animate-pulse">
+                Searching…
+              </li>
+            )}
+            {!loading && results.length === 0 && (
+              <li className="px-3 py-2.5 text-xs text-muted-foreground">No results found</li>
+            )}
+            {!loading && results.map((r) => (
               <li
-                key={s}
+                key={`${r.lat}-${r.lng}`}
                 role="option"
-                aria-selected={value === s}
+                aria-selected={value === r.name}
                 className="flex items-center gap-2.5 px-3 py-2.5 text-sm text-foreground cursor-pointer hover:bg-secondary transition-colors"
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  onChange(s);
+                  onChange(r.name);
+                  onSelect?.(r);
                   setOpen(false);
                   setFocused(false);
                 }}
               >
                 <MapPin className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                {s}
+                {r.name}
               </li>
             ))}
           </ul>
@@ -184,6 +186,8 @@ export default function DriverDashboard() {
   const [driverStatus, setDriverStatus] = useState<DriverStatus>("offline");
   const [routeStart, setRouteStart] = useState("");
   const [routeEnd, setRouteEnd] = useState("");
+  const [routeStartCoords, setRouteStartCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [routeEndCoords, setRouteEndCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [routeSaved, setRouteSaved] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -191,6 +195,32 @@ export default function DriverDashboard() {
   const [historyTrips, setHistoryTrips] = useState<HistoryTrip[]>([]);
   const [serviceScore, setServiceScore] = useState<number | null>(null);
   const [tripsCompleted, setTripsCompleted] = useState<number | null>(null);
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+
+  const gpsInitRef = useRef(false);
+  useEffect(() => {
+    if (gpsInitRef.current || !navigator?.geolocation) return;
+    gpsInitRef.current = true;
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setUserLocation([longitude, latitude]);
+        const name = await reverseGeocode(latitude, longitude);
+        if (name) {
+          setRouteStart((prev) => prev || name);
+          setRouteStartCoords((prev) => prev || { lat: latitude, lng: longitude });
+        }
+      },
+      () => {},
+      { timeout: 8000, maximumAge: 60_000 },
+    );
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => setUserLocation([pos.coords.longitude, pos.coords.latitude]),
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 10_000 },
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
 
   const fetchHistory = async () => {
     try {
@@ -224,7 +254,14 @@ export default function DriverDashboard() {
       ]);
 
       const routeData = (await routeRes.json().catch(() => ({}))) as {
-        route?: { routeStart?: string | null; routeEnd?: string | null };
+        route?: {
+          routeStart?: string | null;
+          routeEnd?: string | null;
+          routeStartLat?: number | null;
+          routeStartLng?: number | null;
+          routeEndLat?: number | null;
+          routeEndLng?: number | null;
+        };
       };
       const availabilityData = (await availabilityRes.json().catch(() => ({}))) as {
         availability?: { isOnline?: boolean };
@@ -238,6 +275,12 @@ export default function DriverDashboard() {
       setRouteStart(savedStart);
       setRouteEnd(savedEnd);
       setRouteSaved(Boolean(savedStart && savedEnd));
+      if (routeData.route?.routeStartLat && routeData.route?.routeStartLng) {
+        setRouteStartCoords({ lat: routeData.route.routeStartLat, lng: routeData.route.routeStartLng });
+      }
+      if (routeData.route?.routeEndLat && routeData.route?.routeEndLng) {
+        setRouteEndCoords({ lat: routeData.route.routeEndLat, lng: routeData.route.routeEndLng });
+      }
 
       const trip = activeTripData.trip ?? null;
       setActiveTrip(trip);
@@ -283,7 +326,12 @@ export default function DriverDashboard() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ routeStart: routeStart.trim(), routeEnd: routeEnd.trim() }),
+        body: JSON.stringify({
+          routeStart: routeStart.trim(),
+          routeEnd: routeEnd.trim(),
+          ...(routeStartCoords && { routeStartLat: routeStartCoords.lat, routeStartLng: routeStartCoords.lng }),
+          ...(routeEndCoords && { routeEndLat: routeEndCoords.lat, routeEndLng: routeEndCoords.lng }),
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
@@ -326,6 +374,33 @@ export default function DriverDashboard() {
         toast("You're now offline");
       }
       await loadDriverState();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResetRoute = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/driver/route", {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        toast.error(data.error ?? "Could not reset route.");
+        return;
+      }
+
+      setRouteStart("");
+      setRouteEnd("");
+      setRouteStartCoords(null);
+      setRouteEndCoords(null);
+      setRouteSaved(false);
+      if (driverStatus !== "incoming") {
+        setDriverStatus("offline");
+      }
+      toast.success("Route cleared. Set a new route.");
     } finally {
       setBusy(false);
     }
@@ -407,13 +482,13 @@ export default function DriverDashboard() {
       <div className="px-5 pt-5">
         <AppMap
           heightClass="h-72"
-          zoom={12}
           className="rounded-xl overflow-hidden border border-border"
+          userLocation={userLocation}
           markers={
-            routeSaved
+            routeSaved && routeStartCoords && routeEndCoords
               ? [
-                  { id: "start", lngLat: [38.7685, 9.0161], color: "#ffffff" },
-                  { id: "end",   lngLat: [38.7869, 9.0372], color: "#888888" },
+                  { id: "start", lngLat: [routeStartCoords.lng, routeStartCoords.lat] as [number, number], color: "#ffffff" },
+                  { id: "end",   lngLat: [routeEndCoords.lng,   routeEndCoords.lat]   as [number, number], color: "#888888" },
                 ]
               : []
           }
@@ -438,14 +513,12 @@ export default function DriverDashboard() {
               disabled={busy}
               aria-label={driverStatus !== "offline" ? "Go offline" : "Go online"}
               className={`relative w-14 h-7 rounded-full transition-all duration-300 ${
-                driverStatus !== "offline" ? "bg-foreground" : "bg-secondary border border-border"
+                driverStatus !== "offline" ? "bg-green-500" : "bg-red-500"
               } cursor-pointer`}
             >
               <span
-                className={`absolute top-1 w-5 h-5 rounded-full transition-all duration-300 ${
-                  driverStatus !== "offline"
-                    ? "left-8 bg-background"
-                    : "left-1 bg-muted-foreground"
+                className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all duration-300 ${
+                  driverStatus !== "offline" ? "left-8" : "left-1"
                 }`}
               />
             </button>
@@ -537,7 +610,8 @@ export default function DriverDashboard() {
               label="Start Point"
               icon={MapPin}
               value={routeStart}
-              onChange={(v) => { setRouteStart(v); setRouteSaved(false); }}
+              onChange={(v) => { setRouteStart(v); setRouteSaved(false); setRouteStartCoords(null); }}
+              onSelect={(p) => { setRouteStart(p.name); setRouteSaved(false); setRouteStartCoords({ lat: p.lat, lng: p.lng }); }}
               placeholder="Your starting location"
             />
             <LocationInput
@@ -545,19 +619,30 @@ export default function DriverDashboard() {
               label="End Point"
               icon={Navigation}
               value={routeEnd}
-              onChange={(v) => { setRouteEnd(v); setRouteSaved(false); }}
+              onChange={(v) => { setRouteEnd(v); setRouteSaved(false); setRouteEndCoords(null); }}
+              onSelect={(p) => { setRouteEnd(p.name); setRouteSaved(false); setRouteEndCoords({ lat: p.lat, lng: p.lng }); }}
               placeholder="Your destination"
             />
           </div>
 
-          <Button
-            variant={routeSaved ? "outline" : "default"}
-            className="w-full"
-            onClick={handleSaveRoute}
-            disabled={!routeStart.trim() || !routeEnd.trim() || busy}
-          >
-            {routeSaved ? "Update Route" : "Save Route"}
-          </Button>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant={routeSaved ? "outline" : "default"}
+              className="w-full"
+              onClick={handleSaveRoute}
+              disabled={!routeStart.trim() || !routeEnd.trim() || busy}
+            >
+              {routeSaved ? "Update Route" : "Save Route"}
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full border-red-500/50 text-red-500 hover:bg-red-500/10 hover:text-red-500"
+              onClick={handleResetRoute}
+              disabled={(!routeSaved && !routeStart.trim() && !routeEnd.trim()) || busy}
+            >
+              Reset Route
+            </Button>
+          </div>
         </Card>
 
         {/* Service score */}

@@ -4,10 +4,10 @@ import { rideRejection, rideRequest } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
-
-function generateId() {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
+import { generateId } from "@/lib/generate-id";
+import { validateTransition, type RideStatus } from "@/lib/state-machine";
+import { writeTripEvent } from "@/lib/trip-events";
+import { invalidTransition } from "@/lib/api-error";
 
 export async function POST(
   _request: Request,
@@ -21,9 +21,8 @@ export async function POST(
   const [ride] = await db.select().from(rideRequest).where(eq(rideRequest.id, id)).limit(1);
   if (!ride) return NextResponse.json({ error: "Ride not found." }, { status: 404 });
 
-  if (ride.status !== "requested" && ride.status !== "matched") {
-    return NextResponse.json({ error: "Ride can no longer be rejected." }, { status: 400 });
-  }
+  const { valid, reason } = validateTransition(ride.status as RideStatus, "reject");
+  if (!valid) return invalidTransition(reason!);
 
   const existing = await db
     .select({ id: rideRejection.id })
@@ -40,16 +39,22 @@ export async function POST(
     });
   }
 
-  if (ride.matchedDriverId === session.user.id) {
+  const wasMatched = ride.matchedDriverId === session.user.id;
+
+  if (wasMatched) {
     await db
       .update(rideRequest)
-      .set({
-        status: "requested",
-        matchedDriverId: null,
-        updatedAt: new Date(),
-      })
+      .set({ status: "requested", matchedDriverId: null, updatedAt: new Date() })
       .where(eq(rideRequest.id, id));
   }
+
+  await writeTripEvent({
+    rideId: id,
+    actorId: session.user.id,
+    actorRole: "driver",
+    event: "reject",
+    metadata: { wasMatched },
+  });
 
   return NextResponse.json({ ok: true });
 }

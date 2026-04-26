@@ -24,11 +24,12 @@ import AppMap from "@/components/app-map";
 import BottomNav from "@/components/bottom-nav";
 import ProfileSheet from "@/components/profile-sheet";
 import { usePassengerSession } from "@/lib/auth-client";
+import { searchPlaces, reverseGeocode } from "@/lib/gebeta";
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-type RideStatus = "idle" | "searching" | "matched";
+type RideStatus = "idle" | "searching" | "matched" | "accepted";
 
 type RideRecord = {
   id: string;
@@ -55,53 +56,49 @@ type HistoryTrip = {
   endedAt: string | null;
 };
 
-const LOCATIONS = [
-  "Bole Medhanialem",
-  "Bole Atlas",
-  "Meskel Square",
-  "Piazza",
-  "Megenagna",
-  "CMC",
-  "Kazanchis",
-  "Arat Kilo",
-  "Semen Hotel",
-  "Mexico",
-  "Stadium",
-  "Lebu",
-  "Teklehaimanot",
-  "Mercato",
-  "Gotera",
-  "Gerji",
-  "Ayat",
-  "Sarbet",
-  "Olympia",
-  "Aware",
-  "Kolfe",
-  "Asco",
-];
+type PlaceResult = { name: string; lat: number; lng: number };
 
 function LocationInput({
   id,
   icon: Icon,
   value,
   onChange,
+  onSelect,
   placeholder,
 }: {
   id: string;
   icon: React.ElementType;
   value: string;
   onChange: (v: string) => void;
+  onSelect?: (place: PlaceResult) => void;
   placeholder: string;
 }) {
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [results, setResults] = useState<Array<{ name: string; lat: number; lng: number }>>([]);
+  const [loading, setLoading] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const suggestions = value.trim().length > 0
-    ? LOCATIONS.filter((l) => l.toLowerCase().includes(value.toLowerCase())).slice(0, 6)
-    : LOCATIONS.slice(0, 6);
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!value.trim() || value.trim().length < 2) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    debounceRef.current = setTimeout(async () => {
+      const places = await searchPlaces(value.trim());
+      setResults(places);
+      setLoading(false);
+    }, 350);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [value]);
 
-  const showDropdown = focused && open;
+  const showDropdown = focused && open && value.trim().length >= 2;
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -131,27 +128,36 @@ function LocationInput({
         aria-controls={`${id}-list`}
         role="combobox"
       />
-      {showDropdown && suggestions.length > 0 && (
+      {showDropdown && (
         <ul
           id={`${id}-list`}
           role="listbox"
           className="absolute z-50 top-full left-0 right-0 mt-1 rounded-lg border border-border bg-card shadow-[var(--shadow-elevation-md)] overflow-hidden"
         >
-          {suggestions.map((s) => (
+          {loading && (
+            <li className="px-3 py-2.5 text-xs text-muted-foreground animate-pulse">
+              Searching…
+            </li>
+          )}
+          {!loading && results.length === 0 && (
+            <li className="px-3 py-2.5 text-xs text-muted-foreground">No results found</li>
+          )}
+          {!loading && results.map((r) => (
             <li
-              key={s}
+              key={`${r.lat}-${r.lng}`}
               role="option"
-              aria-selected={value === s}
+              aria-selected={value === r.name}
               className="flex items-center gap-2.5 px-3 py-2.5 text-sm text-foreground cursor-pointer hover:bg-secondary transition-colors"
               onMouseDown={(e) => {
                 e.preventDefault();
-                onChange(s);
+                onChange(r.name);
+                onSelect?.(r);
                 setOpen(false);
                 setFocused(false);
               }}
             >
               <MapPin className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-              {s}
+              {r.name}
             </li>
           ))}
         </ul>
@@ -179,6 +185,8 @@ export default function PassengerDashboard() {
 
   const [pickup, setPickup] = useState("");
   const [destination, setDestination] = useState("");
+  const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [destCoords, setDestCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [status, setStatus] = useState<RideStatus>("idle");
   const [profileOpen, setProfileOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -186,6 +194,32 @@ export default function PassengerDashboard() {
   const [match, setMatch] = useState<RideMatch | null>(null);
   const [historyTrips, setHistoryTrips] = useState<HistoryTrip[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+
+  const gpsInitRef = useRef(false);
+  useEffect(() => {
+    if (gpsInitRef.current || !navigator?.geolocation) return;
+    gpsInitRef.current = true;
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setUserLocation([longitude, latitude]);
+        const name = await reverseGeocode(latitude, longitude);
+        if (name) {
+          setPickup((prev) => prev || name);
+          setPickupCoords((prev) => prev || { lat: latitude, lng: longitude });
+        }
+      },
+      () => {},
+      { timeout: 8000, maximumAge: 60_000 },
+    );
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => setUserLocation([pos.coords.longitude, pos.coords.latitude]),
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 10_000 },
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
 
   const fetchHistory = async () => {
     setHistoryLoading(true);
@@ -231,8 +265,12 @@ export default function PassengerDashboard() {
       setDestination(trip.destination);
 
       if (trip.status === "requested") setStatus("searching");
-      if (trip.status === "matched" || trip.status === "accepted" || trip.status === "in_progress") {
+      if (trip.status === "matched") {
         setStatus("matched");
+        await refreshMatch(trip.id);
+      }
+      if (trip.status === "accepted" || trip.status === "in_progress") {
+        setStatus("accepted");
         await refreshMatch(trip.id);
       }
     } catch {
@@ -246,7 +284,7 @@ export default function PassengerDashboard() {
   }, []);
 
   useEffect(() => {
-    if (status !== "searching" || !activeRide) return;
+    if ((status !== "searching" && status !== "matched") || !activeRide) return;
     const timer = window.setInterval(() => {
       void loadActiveTrip();
     }, 5000);
@@ -268,7 +306,12 @@ export default function PassengerDashboard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ pickup: pickup.trim(), destination: destination.trim() }),
+        body: JSON.stringify({
+          pickup: pickup.trim(),
+          destination: destination.trim(),
+          ...(pickupCoords && { pickupLat: pickupCoords.lat, pickupLng: pickupCoords.lng }),
+          ...(destCoords && { destLat: destCoords.lat, destLng: destCoords.lng }),
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         ride?: RideRecord;
@@ -284,7 +327,7 @@ export default function PassengerDashboard() {
       setActiveRide(data.ride);
       if (data.matched) {
         setStatus("matched");
-        toast.success("Driver candidates found.");
+        toast.success("Driver found — waiting for acceptance.");
         await refreshMatch(data.ride.id);
       } else {
         setStatus("searching");
@@ -354,13 +397,13 @@ export default function PassengerDashboard() {
       <div className="px-5 pt-5">
         <AppMap
           heightClass="h-72"
-          zoom={13}
           className="rounded-xl overflow-hidden border border-border"
+          userLocation={userLocation}
           markers={
-            status === "matched"
+            status === "matched" && pickupCoords && destCoords
               ? [
-                  { id: "pickup", lngLat: [38.7685, 9.0161], color: "#ffffff" },
-                  { id: "dest",   lngLat: [38.7611, 9.0054], color: "#888888" },
+                  { id: "pickup", lngLat: [pickupCoords.lng, pickupCoords.lat] as [number, number], color: "#ffffff" },
+                  { id: "dest",   lngLat: [destCoords.lng,   destCoords.lat]   as [number, number], color: "#888888" },
                 ]
               : []
           }
@@ -380,7 +423,8 @@ export default function PassengerDashboard() {
                 id="pickup"
                 icon={MapPin}
                 value={pickup}
-                onChange={setPickup}
+                onChange={(v) => { setPickup(v); setPickupCoords(null); }}
+                onSelect={(p) => { setPickup(p.name); setPickupCoords({ lat: p.lat, lng: p.lng }); }}
                 placeholder="Pickup location"
               />
               <div className="flex items-center gap-2 px-3">
@@ -392,7 +436,8 @@ export default function PassengerDashboard() {
                 id="destination"
                 icon={Navigation}
                 value={destination}
-                onChange={setDestination}
+                onChange={(v) => { setDestination(v); setDestCoords(null); }}
+                onSelect={(p) => { setDestination(p.name); setDestCoords({ lat: p.lat, lng: p.lng }); }}
                 placeholder="Destination"
               />
             </div>
@@ -437,7 +482,7 @@ export default function PassengerDashboard() {
           </Card>
         )}
 
-        {/* Matched state */}
+        {/* Matched state — driver found, waiting for them to accept */}
         {status === "matched" && (
           <Card className="bg-card border-border p-5">
             <div className="flex items-center justify-between mb-5">
@@ -445,8 +490,8 @@ export default function PassengerDashboard() {
                 <p className="text-xs text-muted-foreground tracking-widest uppercase mb-1">
                   Driver Found
                 </p>
-                <Badge className="bg-foreground text-background text-xs font-medium">
-                  Waiting for acceptance
+                <Badge className="bg-foreground text-background text-xs font-medium animate-pulse">
+                  Waiting for driver acceptance…
                 </Badge>
               </div>
               <button onClick={handleCancel} aria-label="Cancel ride">
@@ -459,23 +504,83 @@ export default function PassengerDashboard() {
                 <User className="w-6 h-6 text-foreground" />
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-sm text-foreground">Dawit Alemu</p>
+                <p className="font-semibold text-sm text-foreground">{match?.name ?? "Driver"}</p>
                 <p className="text-xs text-muted-foreground">
-                  {match ? `${match.email} · route ${match.routeStart ?? "-"} → ${match.routeEnd ?? "-"}` : "Driver details pending"}
+                  {match
+                    ? `${match.routeStart ?? "-"} → ${match.routeEnd ?? "-"}`
+                    : "Driver details loading…"}
                 </p>
                 <div className="flex items-center gap-1 mt-1">
                   {[1, 2, 3, 4, 5].map((s) => (
                     <Star
                       key={s}
-                      className={`w-3 h-3 ${s <= (match ? 4 : 3) ? "text-foreground fill-foreground" : "text-muted-foreground"}`}
+                      className={`w-3 h-3 ${match && s <= Math.round(match.score / 10) ? "text-foreground fill-foreground" : "text-muted-foreground"}`}
                     />
                   ))}
-                    <span className="text-xs text-muted-foreground ml-1">{match ? "4.0" : "3.0"}</span>
+                  <span className="text-xs text-muted-foreground ml-1">
+                    {match ? (match.score / 10).toFixed(1) : "--"}
+                  </span>
                 </div>
               </div>
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">ETA</p>
-                <p className="font-bold text-foreground">{match ? "5 min" : "--"}</p>
+            </div>
+
+            <Separator className="bg-border mb-4" />
+
+            <div className="flex flex-col gap-2 text-xs">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="w-1.5 h-1.5 rounded-full bg-foreground" />
+                <span>{pickup}</span>
+              </div>
+              <div className="pl-[9px] border-l border-dashed border-border ml-[2px]">
+                <div className="h-3" />
+              </div>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="w-1.5 h-1.5 rounded-full border border-foreground" />
+                <span>{destination}</span>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Accepted state — driver confirmed the ride */}
+        {status === "accepted" && (
+          <Card className="bg-card border-border p-5">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <p className="text-xs text-muted-foreground tracking-widest uppercase mb-1">
+                  Ride Confirmed
+                </p>
+                <Badge className="bg-foreground text-background text-xs font-medium">
+                  Driver accepted
+                </Badge>
+              </div>
+              <button onClick={handleCancel} aria-label="Cancel ride">
+                <X className="w-4 h-4 text-muted-foreground hover:text-foreground transition-colors" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-4 mb-5">
+              <div className="w-12 h-12 rounded-full bg-secondary border border-border flex items-center justify-center">
+                <User className="w-6 h-6 text-foreground" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-sm text-foreground">{match?.name ?? "Driver"}</p>
+                <p className="text-xs text-muted-foreground">
+                  {match
+                    ? `${match.routeStart ?? "-"} → ${match.routeEnd ?? "-"}`
+                    : "Driver details loading…"}
+                </p>
+                <div className="flex items-center gap-1 mt-1">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <Star
+                      key={s}
+                      className={`w-3 h-3 ${match && s <= Math.round(match.score / 10) ? "text-foreground fill-foreground" : "text-muted-foreground"}`}
+                    />
+                  ))}
+                  <span className="text-xs text-muted-foreground ml-1">
+                    {match ? (match.score / 10).toFixed(1) : "--"}
+                  </span>
+                </div>
               </div>
             </div>
 

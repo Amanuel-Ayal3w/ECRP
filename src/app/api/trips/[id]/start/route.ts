@@ -4,6 +4,9 @@ import { rideRequest } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
+import { validateTransition, type RideStatus } from "@/lib/state-machine";
+import { writeTripEvent } from "@/lib/trip-events";
+import { invalidTransition } from "@/lib/api-error";
 
 export async function POST(
   _request: Request,
@@ -21,9 +24,8 @@ export async function POST(
     return NextResponse.json({ error: "Only the assigned driver can start this trip." }, { status: 403 });
   }
 
-  if (ride.status !== "accepted") {
-    return NextResponse.json({ error: "Trip must be accepted before it can start." }, { status: 400 });
-  }
+  const { valid, reason } = validateTransition(ride.status as RideStatus, "start");
+  if (!valid) return invalidTransition(reason!);
 
   const now = new Date();
 
@@ -31,6 +33,14 @@ export async function POST(
     .update(rideRequest)
     .set({ status: "in_progress", startedAt: now, updatedAt: now })
     .where(eq(rideRequest.id, id));
+
+  await writeTripEvent({
+    rideId: id,
+    actorId: session.user.id,
+    actorRole: "driver",
+    event: "start",
+    metadata: { startedAt: now.toISOString() },
+  });
 
   const [updatedRide] = await db.select().from(rideRequest).where(eq(rideRequest.id, id)).limit(1);
   return NextResponse.json({ trip: updatedRide });

@@ -4,29 +4,22 @@ import { driverAvailability, rideRequest } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
-
-function generateId() {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function scoreRouteMatch(routeStart: string | null, routeEnd: string | null, pickup: string, destination: string) {
-  const start = (routeStart ?? "").toLowerCase();
-  const end = (routeEnd ?? "").toLowerCase();
-  const from = pickup.toLowerCase();
-  const to = destination.toLowerCase();
-
-  let score = 0;
-  if (end.includes(to)) score += 3;
-  if (start.includes(from)) score += 2;
-  if (start && end) score += 1;
-  return score;
-}
+import { generateId } from "@/lib/generate-id";
+import { rankDriversByDistance } from "@/lib/score-route";
+import { writeTripEvent } from "@/lib/trip-events";
 
 export async function POST(request: Request) {
   const session = await authPassenger.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  let body: { pickup?: string; destination?: string };
+  let body: {
+    pickup?: string;
+    destination?: string;
+    pickupLat?: number;
+    pickupLng?: number;
+    destLat?: number;
+    destLng?: number;
+  };
   try {
     body = await request.json();
   } catch {
@@ -44,15 +37,26 @@ export async function POST(request: Request) {
   }
 
   const onlineDrivers = await db
-    .select({ userId: driverAvailability.userId, routeStart: driverAvailability.routeStart, routeEnd: driverAvailability.routeEnd })
+    .select({
+      userId: driverAvailability.userId,
+      routeStart: driverAvailability.routeStart,
+      routeEnd: driverAvailability.routeEnd,
+      routeStartLat: driverAvailability.routeStartLat,
+      routeStartLng: driverAvailability.routeStartLng,
+      routeEndLat: driverAvailability.routeEndLat,
+      routeEndLng: driverAvailability.routeEndLng,
+    })
     .from(driverAvailability)
     .where(eq(driverAvailability.isOnline, true));
 
-  const ranked = onlineDrivers
-    .map((d) => ({ ...d, score: scoreRouteMatch(d.routeStart, d.routeEnd, pickup, destination) }))
-    .sort((a, b) => b.score - a.score);
+  const pickupCoords =
+    body.pickupLat != null && body.pickupLng != null
+      ? { lat: body.pickupLat, lng: body.pickupLng }
+      : null;
 
-  const bestDriver = ranked[0];
+  const ranked = await rankDriversByDistance(pickup, onlineDrivers, pickupCoords);
+  const bestDriver = ranked[0] ?? null;
+
   const now = new Date();
   const id = generateId();
   const status = bestDriver ? "matched" : "requested";
@@ -66,6 +70,19 @@ export async function POST(request: Request) {
     matchedDriverId: bestDriver?.userId ?? null,
     createdAt: now,
     updatedAt: now,
+  });
+
+  await writeTripEvent({
+    rideId: id,
+    actorId: session.user.id,
+    actorRole: "passenger",
+    event: bestDriver ? "match" : "requested",
+    metadata: {
+      pickup,
+      destination,
+      matchedDriverId: bestDriver?.userId ?? null,
+      distanceKm: bestDriver?.distanceKm !== Infinity ? (bestDriver?.distanceKm ?? null) : null,
+    },
   });
 
   const [ride] = await db

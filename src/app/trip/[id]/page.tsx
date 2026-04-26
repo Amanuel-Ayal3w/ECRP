@@ -1,161 +1,260 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Progress } from "@/components/ui/progress";
-import { AlertTriangle, Car, ChevronDown, MapPin, Navigation, Phone, Star, User } from "lucide-react";
-import Link from "next/link";
-import { BrandIconHomeLink } from "@/components/brand-home-link";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { AlertTriangle, MapPin, Navigation, X } from "lucide-react";
 import AppMap from "@/components/app-map";
-import { useState } from "react";
+import BottomNav from "@/components/bottom-nav";
+import { useDriverSession, usePassengerSession } from "@/lib/auth-client";
+import { use, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { getPusherClient } from "@/lib/pusher-client";
 
-export default function ActiveTripPage() {
+type TripData = {
+  id: string;
+  pickup: string;
+  destination: string;
+  status: string;
+  passengerId: string;
+  matchedDriverId: string | null;
+  acceptedAt: string | null;
+  startedAt: string | null;
+};
+
+export default function ActiveTripPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  const router = useRouter();
+
+  const { data: driverSession } = useDriverSession();
+  const { data: passengerSession } = usePassengerSession();
+
+  // Derive role from whichever session is active — driver takes priority
+  // so a user with both cookies still lands on the right dashboard.
+  const actor: "driver" | "passenger" | null = driverSession
+    ? "driver"
+    : passengerSession
+    ? "passenger"
+    : null;
+
+  const [trip, setTrip] = useState<TripData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [panicOpen, setPanicOpen] = useState(false);
   const [panicSent, setPanicSent] = useState(false);
-  const [tripProgress] = useState(38);
+  const [ending, setEnding] = useState(false);
+  const [driverLocation, setDriverLocation] = useState<[number, number] | null>(null);
+  const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const handlePanic = () => {
-    setPanicSent(true);
-    setTimeout(() => {
-      setPanicOpen(false);
-      setPanicSent(false);
-    }, 3000);
+  useEffect(() => {
+    fetch("/api/trips/active", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data: { trip?: TripData | null }) => {
+        setTrip(data.trip ?? null);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  // Passenger: subscribe to Pusher channel for live driver location
+  useEffect(() => {
+    if (actor !== "passenger") return;
+    let channel: ReturnType<typeof getPusherClient>["subscribe"] extends (...a: never[]) => infer R ? R : never;
+    try {
+      const pusher = getPusherClient();
+      channel = pusher.subscribe(`private-trip.${id}`);
+      channel.bind("location_update", (data: { lat: number; lng: number }) => {
+        setDriverLocation([data.lng, data.lat]);
+      });
+    } catch (err) {
+      console.error("[pusher] subscription failed", err);
+    }
+    return () => {
+      try { getPusherClient().unsubscribe(`private-trip.${id}`); } catch { /* ignore */ }
+    };
+  }, [id, actor]);
+
+  // Driver: POST GPS location every 6 seconds while trip is in_progress
+  useEffect(() => {
+    if (actor !== "driver") return;
+    if (!trip || trip.status !== "in_progress") return;
+    if (!navigator?.geolocation) return;
+
+    const postLocation = () => {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const { latitude: lat, longitude: lng } = pos.coords;
+          setDriverLocation([lng, lat]);
+          await fetch(`/api/trips/${id}/location`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ lat, lng }),
+          }).catch(() => {});
+        },
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 5_000, timeout: 8_000 },
+      );
+    };
+
+    postLocation();
+    locationIntervalRef.current = setInterval(postLocation, 6_000);
+    return () => {
+      if (locationIntervalRef.current) clearInterval(locationIntervalRef.current);
+    };
+  }, [id, actor, trip]);
+
+  const handleClose = () => {
+    router.push(actor === "driver" ? "/driver" : "/passenger");
   };
 
+  const handlePanic = async () => {
+    try {
+      await fetch(`/api/trips/${id}/panic`, { method: "POST", credentials: "include" });
+    } catch { /* best-effort */ }
+    setPanicSent(true);
+    setTimeout(() => { setPanicOpen(false); setPanicSent(false); }, 3000);
+  };
+
+  const handleEndTrip = async () => {
+    setEnding(true);
+    try {
+      const res = await fetch(`/api/trips/${id}/cancel`, { method: "POST", credentials: "include" });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(data.error ?? "Could not end trip.");
+        return;
+      }
+      toast("Trip ended.");
+      router.push(actor === "driver" ? "/driver" : "/passenger");
+    } finally {
+      setEnding(false);
+    }
+  };
+
+  const shortId = id.slice(0, 8).toUpperCase();
+
   return (
-    <main className="min-h-screen bg-background flex flex-col max-w-md mx-auto">
-      {/* Header */}
-      <header className="sticky top-0 z-20 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
+    /* Full-screen canvas — map fills everything, UI floats on top */
+    <div className="fixed inset-0 z-50 flex flex-col max-w-md mx-auto bg-background">
+
+      {/* ── Top bar ── */}
+      <header className="flex-shrink-0 flex items-center justify-between px-5 py-4 bg-background border-b border-border">
         <div className="flex items-center gap-2">
-          <BrandIconHomeLink />
-          <span className="font-semibold tracking-tight text-foreground text-sm">Live Trip</span>
+          <span className="font-semibold text-sm text-foreground">Live Trip</span>
+          {!loading && trip && (
+            <Badge variant="outline" className="text-xs border-border text-muted-foreground font-normal">
+              #{shortId}
+            </Badge>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1.5 text-xs text-foreground">
-            <span className="w-1.5 h-1.5 rounded-full bg-foreground animate-pulse" />
-            In Progress
-          </span>
-          <Badge variant="outline" className="text-xs border-border text-muted-foreground font-normal">
-            #TRP-8821
-          </Badge>
-          <ThemeToggle />
+        <div className="flex items-center gap-3">
+          {!loading && trip && (
+            <span className="flex items-center gap-1.5 text-xs text-foreground">
+              <span className="w-1.5 h-1.5 rounded-full bg-foreground animate-pulse" />
+              {trip.status === "in_progress"
+                ? "In Progress"
+                : trip.status === "accepted"
+                ? "Confirmed"
+                : trip.status}
+            </span>
+          )}
+          <button
+            onClick={handleClose}
+            className="w-8 h-8 rounded-full bg-background/80 border border-border flex items-center justify-center hover:bg-secondary transition-colors"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4 text-foreground" />
+          </button>
         </div>
       </header>
 
-      {/* Live Map — inset to match cards */}
-      <div className="px-5 pt-5">
+      {/* ── Map tile ── */}
+      <div className="flex-shrink-0 px-5 pt-4">
         <AppMap
-          heightClass="h-72"
-          zoom={14}
+          heightClass="h-64"
+          zoom={13}
           className="rounded-xl overflow-hidden border border-border"
-          markers={[
-            { id: "pickup", lngLat: [38.7685, 9.0161], color: "#ffffff" },
-            { id: "driver", lngLat: [38.7648, 9.0132], color: "#555555" },
-            { id: "dest",   lngLat: [38.7611, 9.0054], color: "#888888" },
-          ]}
+          markers={driverLocation ? [{ id: "driver", lngLat: driverLocation, color: "#000000" }] : []}
         />
       </div>
 
-      {/* Progress bar */}
-      <div className="px-5 py-3 border-b border-border bg-card">
-        <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
-          <span>Trip progress</span>
-          <span className="font-medium text-foreground">{tripProgress}%</span>
-        </div>
-        <Progress value={tripProgress} className="h-1 bg-secondary" />
+      {/* ── Info panel ── */}
+      <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4">
+        {loading && (
+          <div className="flex flex-col gap-3 animate-pulse">
+            <div className="h-4 bg-secondary rounded w-2/3" />
+            <div className="h-4 bg-secondary rounded w-1/2" />
+          </div>
+        )}
+
+        {!loading && !trip && (
+          <div className="text-center py-8">
+            <p className="text-sm text-muted-foreground mb-3">No active trip found.</p>
+            <Button variant="outline" size="sm" onClick={handleClose}>Go Back</Button>
+          </div>
+        )}
+
+        {!loading && trip && (
+          <>
+            {/* Route card */}
+            <div className="bg-card border border-border rounded-xl p-4">
+              <p className="text-xs text-muted-foreground tracking-widest uppercase mb-3">Route</p>
+              <div className="flex items-start gap-3">
+                <div className="flex flex-col items-center gap-0.5 pt-0.5">
+                  <div className="w-2 h-2 rounded-full bg-foreground flex-shrink-0" />
+                  <div className="w-px h-6 border-l border-dashed border-border" />
+                  <div className="w-2 h-2 rounded-full border border-foreground flex-shrink-0" />
+                </div>
+                <div className="flex flex-col gap-2.5 flex-1 min-w-0">
+                  <div>
+                    <p className="text-xs font-medium text-foreground truncate">{trip.pickup}</p>
+                    <p className="text-[10px] text-muted-foreground">Pickup</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-foreground truncate">{trip.destination}</p>
+                    <p className="text-[10px] text-muted-foreground">Destination</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Role */}
+            <div className="bg-secondary rounded-xl px-4 py-3 flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">You are the</span>
+              <Badge variant="outline" className="text-xs capitalize border-border">
+                {actor ?? "—"}
+              </Badge>
+            </div>
+
+            {/* Panic */}
+            <Button
+              variant="outline"
+              className="w-full h-12 border-2 border-foreground/25 hover:border-foreground hover:bg-secondary gap-2 font-semibold text-sm transition-all"
+              onClick={() => setPanicOpen(true)}
+            >
+              <AlertTriangle className="w-4 h-4" />
+              Emergency Panic Button
+            </Button>
+
+            {/* End trip */}
+            <Button
+              variant="outline"
+              className="w-full border-border text-muted-foreground text-sm"
+              onClick={handleEndTrip}
+              disabled={ending}
+            >
+              {ending ? "Ending…" : "End Trip Early"}
+            </Button>
+          </>
+        )}
       </div>
 
-      <div className="flex-1 flex flex-col px-5 py-5 gap-4 overflow-y-auto pb-6">
-        {/* ETA card */}
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: "ETA", value: "8 min", icon: <Navigation className="w-3.5 h-3.5" /> },
-            { label: "Distance", value: "3.2 km", icon: <MapPin className="w-3.5 h-3.5" /> },
-            { label: "Duration", value: "12 min", icon: <Car className="w-3.5 h-3.5" /> },
-          ].map((s) => (
-            <Card key={s.label} className="bg-card border-border p-3 text-center">
-              <div className="flex items-center justify-center gap-1 text-muted-foreground mb-1">
-                {s.icon}
-                <span className="text-xs">{s.label}</span>
-              </div>
-              <p className="font-bold text-sm text-foreground">{s.value}</p>
-            </Card>
-          ))}
-        </div>
+      {actor && <BottomNav role={actor} />}
 
-        {/* Driver/Passenger info */}
-        <Card className="bg-card border-border p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-full bg-secondary flex items-center justify-center">
-              <User className="w-5 h-5 text-foreground" />
-            </div>
-            <div className="flex-1">
-              <p className="font-semibold text-sm text-foreground">Dawit Alemu</p>
-              <p className="text-xs text-muted-foreground">Toyota Corolla · AA 3-45678</p>
-              <div className="flex items-center gap-1 mt-0.5">
-                {[1, 2, 3, 4, 5].map((s) => (
-                  <Star
-                    key={s}
-                    className={`w-3 h-3 ${s <= 4 ? "text-foreground fill-foreground" : "text-muted-foreground"}`}
-                  />
-                ))}
-                <span className="text-xs text-muted-foreground ml-0.5">4.8</span>
-              </div>
-            </div>
-            <button className="w-9 h-9 rounded-full border border-border bg-secondary flex items-center justify-center hover:bg-muted transition-colors">
-              <Phone className="w-4 h-4 text-foreground" />
-            </button>
-          </div>
-        </Card>
-
-        {/* Route summary */}
-        <Card className="bg-card border-border p-4">
-          <p className="text-xs text-muted-foreground tracking-widest uppercase mb-3">
-            Route Summary
-          </p>
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-foreground flex-shrink-0" />
-              <div>
-                <p className="text-xs font-medium text-foreground">Bole Medhanialem</p>
-                <p className="text-xs text-muted-foreground">Pickup · 9:12 AM</p>
-              </div>
-            </div>
-            <div className="ml-[3px] pl-4 border-l border-dashed border-border h-4" />
-            <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full border border-foreground flex-shrink-0" />
-              <div>
-                <p className="text-xs font-medium text-foreground">Meskel Square</p>
-                <p className="text-xs text-muted-foreground">Destination · ~9:24 AM</p>
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        {/* Panic button */}
-        <Button
-          variant="outline"
-          className="w-full h-14 border-2 border-foreground/30 hover:border-foreground hover:bg-secondary gap-2 font-semibold text-sm transition-all"
-          onClick={() => setPanicOpen(true)}
-        >
-          <AlertTriangle className="w-5 h-5" />
-          Emergency Panic Button
-        </Button>
-
-        <Link href="/passenger">
-          <Button variant="outline" className="w-full border-border text-muted-foreground gap-1.5 text-sm">
-            <ChevronDown className="w-4 h-4" />
-            End Trip Early
-          </Button>
-        </Link>
-      </div>
-
-      {/* Panic modal */}
+      {/* ── Panic modal ── */}
       <Dialog open={panicOpen} onOpenChange={setPanicOpen}>
-        <DialogContent className="bg-card border-border max-w-sm mx-auto">
+        <DialogContent className="bg-card border-border max-w-sm mx-auto z-[60]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-foreground">
               <AlertTriangle className="w-5 h-5" />
@@ -166,26 +265,26 @@ export default function ActiveTripPage() {
           {!panicSent ? (
             <div className="flex flex-col gap-4 pt-2">
               <p className="text-sm text-muted-foreground leading-relaxed">
-                This will immediately send your current GPS coordinates and trip details to the admin
-                dashboard and emergency contacts.
+                This will immediately send your GPS coordinates and trip details to the admin dashboard.
               </p>
-              <div className="bg-secondary rounded-lg p-3 text-xs text-muted-foreground">
-                <p className="font-medium text-foreground mb-1">Trip #TRP-8821</p>
-                <p>Location: Bole — Meskel Square</p>
-                <p>Driver: Dawit Alemu · AA 3-45678</p>
-              </div>
+              {trip && (
+                <div className="bg-secondary rounded-lg p-3 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground mb-1">Trip #{shortId}</p>
+                  <div className="flex items-center gap-1.5">
+                    <MapPin className="w-3 h-3 flex-shrink-0" />
+                    <span className="truncate">{trip.pickup}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <Navigation className="w-3 h-3 flex-shrink-0" />
+                    <span className="truncate">{trip.destination}</span>
+                  </div>
+                </div>
+              )}
               <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  className="flex-1 border-border"
-                  onClick={() => setPanicOpen(false)}
-                >
+                <Button variant="outline" className="flex-1 border-border" onClick={() => setPanicOpen(false)}>
                   Cancel
                 </Button>
-                <Button
-                  className="flex-1 bg-foreground text-background"
-                  onClick={handlePanic}
-                >
+                <Button className="flex-1 bg-foreground text-background" onClick={handlePanic}>
                   Send Alert Now
                 </Button>
               </div>
@@ -203,6 +302,6 @@ export default function ActiveTripPage() {
           )}
         </DialogContent>
       </Dialog>
-    </main>
+    </div>
   );
 }
