@@ -1,3 +1,99 @@
 @AGENTS.md
 
-ECRP Developer Implementation Document1. Architectural Overview & Tech StackThe ECRP is a mobile-responsive web platform designed for community-based voluntary ride-sharing.Framework: Next.js (App Router) acting as a full-stack monolith (Frontend + Server Actions/API Routes).Database: PostgreSQL (relational structure for users, rides, and scores).Authentication: Better Auth with the Telegram Login Provider.Real-Time Engine: Pusher (managed WebSockets).Mapping & Routing: Gebeta Maps APIs (Matrix, Direction, Geocoding).Design System: Minimalist aesthetic, mobile-first responsiveness, black-and-white primary contrast for high readability.2. Core Modules & Functional RequirementsModule 1: User Management & AuthenticationContext: Frictionless onboarding using Telegram to capture identity and contact info, bypassing complex KYC systems.FR 1.1: Telegram Social LoginAction: The system must allow users to register and authenticate exclusively via the Telegram Login Widget.Data Captured: Telegram ID, First Name, Last Name, Profile Picture.State: Sessions managed via secure HttpOnly cookies.FR 1.2: Role Selection & OnboardingAction: Post-login, the user must select a role: Passenger or Driver.Driver Specifics: If Driver is selected, the system must prompt for vehicle details (Plate Number, Capacity) and basic license data before activating the driver profile.FR 1.3: Profile ManagementAction: Users can view their basic profile data and trip history.Module 2: Ride Coordination & MatchingContext: Synchronizing passengers needing rides with drivers offering empty seats using Gebeta Maps.FR 2.1: Passenger Ride RequestAction: Passengers input "Pickup" and "Destination" locations.API Integration: Next.js backend uses Gebeta Maps Geocoding to convert these inputs to [lat, lng] coordinates.FR 2.2: Driver Availability DeclarationAction: Drivers toggle an "Online" status and define their expected daily route (Start Point to End Point).FR 2.3: Smart Matching AlgorithmAction: When a passenger submits a request, the server utilizes the Gebeta Maps Matrix API to find "Online" drivers within a defined proximity whose declared routes align with the passenger's destination.FR 2.4: Ride Acceptance WorkflowAction: Matched drivers receive a notification (via Pusher). They have explicit control to "Accept" or "Reject" the ride.Module 3: Distributed Trip Monitoring (Real-Time)Context: Live tracking of active rides utilizing Pusher to offload WebSocket management from the Next.js server.FR 3.1: Live GPS TracingAction: Upon ride acceptance, the driver's client device begins polling navigator.geolocation.Data Flow: The client POSTs coordinates to a Next.js API route. The API triggers a Pusher event on a private channel (e.g., private-trip-[ID]).UI: The passenger's client subscribes to this channel and updates a dynamic marker on the Gebeta Map interface in real-time.FR 3.2: Emergency Alert MechanismAction: A persistent "Panic Button" must be visible on the active trip screen for both users.Trigger: Activating this sends the current GPS coordinates and trip details to the Admin Dashboard via a high-priority Pusher event and logs it in the database.FR 3.3: Trip Lifecycle LoggingAction: The system must record the start_time, end_time, total distance, and status (Completed/Cancelled) upon trip termination.Module 4: Service Scoring & AdministrationContext: Tracking driver contributions and cross-referencing with external compliance data without handling financial transactions.FR 4.1: Automated Point AllocationAction: Upon verified trip completion, the backend automatically increments the driver's "Service Score" within the database.FR 4.2: Admin Oversight DashboardAction: A protected route (/admin) where system administrators can view active users, monitor live rides, and respond to emergency alerts.FR 4.3: Traffic Authority Data IngestionAction: The dashboard must include a secure file-upload utility accepting CSV files from Traffic Authorities containing penalty data (e.g., License Plate, Violation Type).Processing: A Next.js server action parses the CSV, identifies matching drivers, and mathematically adjusts their Service Scores accordingly.3. Developer Implementation NotesState Management: Rely on server-side fetching and Next.js Server Components where possible to minimize client bundle size.Pusher Optimization: To stay within free-tier limits, throttle client-side GPS POST requests to fire every 5-7 seconds rather than every second.Map Rendering: Ensure the Gebeta Map component is lazy-loaded so it does not block the initial page render.
+# ECRP Developer Implementation Document
+
+## 1. Architectural Overview and Tech Stack
+
+The ECRP is a mobile-responsive web platform designed for community-based voluntary ride-sharing.
+
+- Framework: Next.js (App Router) acting as a full-stack monolith (Frontend + Server Actions/API Routes).
+- Database: PostgreSQL (relational structure for users, rides, and scores).
+- Authentication: Better Auth with the Telegram Login Provider.
+- Real-Time Engine: Pusher (managed WebSockets).
+- Mapping and Routing: Gebeta Maps APIs (Matrix, Direction, Geocoding).
+- Design System: Minimalist aesthetic, mobile-first responsiveness, black-and-white primary contrast for high readability.
+
+## 2. Core Modules and Functional Requirements
+
+### Module 1: User Management and Authentication
+
+Context: Frictionless onboarding using Telegram to capture identity and contact info, bypassing complex KYC systems.
+
+#### FR 1.1: Telegram Social Login
+
+- Action: The system must allow users to register and authenticate exclusively via the Telegram Login Widget.
+- Data Captured: Telegram ID, First Name, Last Name, Profile Picture.
+- State: Sessions managed via secure HttpOnly cookies.
+
+#### FR 1.2: Role Selection and Onboarding
+
+- Action: Post-login, the user must select a role: Passenger or Driver.
+- Driver Specifics: If Driver is selected, the system must prompt for vehicle details (Plate Number, Capacity) and basic license data before activating the driver profile.
+
+#### FR 1.3: Profile Management
+
+- Action: Users can view their basic profile data and trip history.
+
+### Module 2: Ride Coordination and Matching
+
+Context: Synchronizing passengers needing rides with drivers offering empty seats using Gebeta Maps.
+
+#### FR 2.1: Passenger Ride Request
+
+- Action: Passengers input "Pickup" and "Destination" locations.
+- API Integration: Next.js backend uses Gebeta Maps Geocoding to convert these inputs to [lat, lng] coordinates.
+
+#### FR 2.2: Driver Availability Declaration
+
+- Action: Drivers toggle an "Online" status and define their expected daily route (Start Point to End Point).
+
+#### FR 2.3: Smart Matching Algorithm
+
+- Action: When a passenger submits a request, the server utilizes the Gebeta Maps Matrix API to find "Online" drivers within a defined proximity whose declared routes align with the passenger's destination.
+
+#### FR 2.4: Ride Acceptance Workflow
+
+- Action: Matched drivers receive a notification (via Pusher).
+- Control: Drivers have explicit control to "Accept" or "Reject" the ride.
+
+### Module 3: Distributed Trip Monitoring (Real-Time)
+
+Context: Live tracking of active rides utilizing Pusher to offload WebSocket management from the Next.js server.
+
+#### FR 3.1: Live GPS Tracing
+
+- Action: Upon ride acceptance, the driver's client device begins polling navigator.geolocation.
+- Data Flow: The client POSTs coordinates to a Next.js API route. The API triggers a Pusher event on a private channel (for example, private-trip-[ID]).
+- UI: The passenger's client subscribes to this channel and updates a dynamic marker on the Gebeta Map interface in real-time.
+
+#### FR 3.2: Emergency Alert Mechanism
+
+- Action: A persistent "Panic Button" must be visible on the active trip screen for both users.
+- Trigger: Activating this sends the current GPS coordinates and trip details to the Admin Dashboard via a high-priority Pusher event and logs it in the database.
+
+#### FR 3.3: Trip Lifecycle Logging
+
+- Action: The system must record the start_time, end_time, total distance, and status (Completed/Cancelled) upon trip termination.
+
+### Module 4: Service Scoring and Administration
+
+Context: Tracking driver contributions and cross-referencing with external compliance data without handling financial transactions.
+
+#### FR 4.1: Automated Point Allocation
+
+- Action: Upon verified trip completion, the backend automatically increments the driver's Service Score within the database.
+
+#### FR 4.2: Admin Oversight Dashboard
+
+- Action: A protected route (/admin) where system administrators can view active users, monitor live rides, and respond to emergency alerts.
+
+#### FR 4.3: Traffic Authority Data Ingestion
+
+- Action: The dashboard must include a secure file-upload utility accepting CSV files from Traffic Authorities containing penalty data (for example, License Plate, Violation Type).
+- Processing: A Next.js server action parses the CSV, identifies matching drivers, and mathematically adjusts their Service Scores accordingly.
+
+## 3. Developer Implementation Notes
+
+- State Management: Rely on server-side fetching and Next.js Server Components where possible to minimize client bundle size.
+- Pusher Optimization: To stay within free-tier limits, throttle client-side GPS POST requests to fire every 5-7 seconds rather than every second.
+- Map Rendering: Ensure the Gebeta Map component is lazy-loaded so it does not block the initial page render.
