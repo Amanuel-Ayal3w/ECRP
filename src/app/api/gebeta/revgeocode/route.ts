@@ -1,3 +1,4 @@
+import { psReverseGeocode } from "@/lib/positionstack";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -9,9 +10,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ name: null });
   }
 
+  /* Try PositionStack first */
+  const psName = await psReverseGeocode(Number(lat), Number(lng));
+  if (psName) {
+    return NextResponse.json({ name: psName });
+  }
+
+  /* Fall back to Gebeta */
   const apiKey = process.env.NEXT_PUBLIC_GEBETA_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: "Gebeta API key not configured" }, { status: 500 });
+    return NextResponse.json({ name: null });
   }
 
   try {

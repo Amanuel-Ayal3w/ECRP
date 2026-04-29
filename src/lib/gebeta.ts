@@ -1,3 +1,5 @@
+import { psGeocode } from "./positionstack";
+
 const GEBETA_BASE = "https://mapapi.gebeta.app/api/v1/route";
 
 export interface GeoPoint {
@@ -6,12 +8,23 @@ export interface GeoPoint {
 }
 
 /**
- * Forward-geocode a place name to coordinates using the Gebeta API.
- * Returns the first result, or null on any failure/timeout.
+ * Forward-geocode a place name to coordinates.
+ * Tries PositionStack first (if POSITIONSTACK_API_KEY is set),
+ * then falls back to Gebeta.
  */
 export async function geocodePlace(name: string): Promise<GeoPoint | null> {
+  if (!name.trim()) return null;
+
+  const psResult = await psGeocode(name);
+  if (psResult) return psResult;
+
+  return geocodePlaceGebeta(name);
+}
+
+/** Gebeta-specific forward geocoding (fallback). */
+async function geocodePlaceGebeta(name: string): Promise<GeoPoint | null> {
   const apiKey = process.env.NEXT_PUBLIC_GEBETA_API_KEY;
-  if (!apiKey || !name.trim()) return null;
+  if (!apiKey) return null;
 
   try {
     const controller = new AbortController();

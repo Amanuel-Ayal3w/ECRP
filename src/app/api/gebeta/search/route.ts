@@ -1,3 +1,4 @@
+import { psSearch } from "@/lib/positionstack";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -8,9 +9,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ results: [] });
   }
 
+  /* Try PositionStack first */
+  const psResults = await psSearch(q);
+  if (psResults.length > 0) {
+    return NextResponse.json({ results: psResults });
+  }
+
+  /* Fall back to Gebeta */
   const apiKey = process.env.NEXT_PUBLIC_GEBETA_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: "Gebeta API key not configured" }, { status: 500 });
+    return NextResponse.json({ results: [] });
   }
 
   try {
