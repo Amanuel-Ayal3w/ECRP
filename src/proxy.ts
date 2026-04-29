@@ -166,6 +166,9 @@ export async function proxy(request: NextRequest) {
       if (!sessionCookie) {
         const loginUrl = new URL("/login", request.url);
         loginUrl.searchParams.set("redirect", pathname);
+        if (roleRequired === "passenger" || roleRequired === "driver") {
+          loginUrl.searchParams.set("as", roleRequired);
+        }
         return NextResponse.redirect(loginUrl);
       }
     }
@@ -176,6 +179,7 @@ export async function proxy(request: NextRequest) {
       if (!session) {
         const loginUrl = new URL("/login", request.url);
         loginUrl.searchParams.set("redirect", pathname);
+        loginUrl.searchParams.set("as", "passenger");
         return NextResponse.redirect(loginUrl);
       }
     }
@@ -185,6 +189,7 @@ export async function proxy(request: NextRequest) {
       if (!session) {
         const loginUrl = new URL("/login", request.url);
         loginUrl.searchParams.set("redirect", pathname);
+        loginUrl.searchParams.set("as", "driver");
         return NextResponse.redirect(loginUrl);
       }
     }

@@ -50,7 +50,7 @@ function LoginForm() {
     }
     // Choose client based on the role context (?as=passenger or ?as=driver)
     const client = role === "driver" ? driverAuthClient : passengerAuthClient;
-    const dest   = role === "driver" ? "/driver" : "/passenger";
+    const dest   = redirect ?? (role === "driver" ? "/driver" : "/passenger");
 
     setSubmitting(true);
     await client.signIn.email(
