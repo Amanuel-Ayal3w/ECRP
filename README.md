@@ -316,7 +316,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Environment Variables
 
-Copy `.env.example` to `.env.local` and fill in all values:
+Copy these values with the approprate values  to `.env.local` and fill in all values:
 
 ```env
 # PostgreSQL connection string

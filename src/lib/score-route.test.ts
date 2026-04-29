@@ -15,13 +15,15 @@ function makeCandidate(id: string, lat: number | null, lng: number | null): Driv
   };
 }
 
+// In the test environment NEXT_PUBLIC_GEBETA_API_KEY is unset, so the Matrix
+// API is skipped and Haversine is used as the fallback for all distance values.
 describe("rankDriversByDistance", () => {
   it("returns empty array when no drivers given", async () => {
     const result = await rankDriversByDistance("Bole", [], BOLE);
     expect(result).toEqual([]);
   });
 
-  it("sorts drivers closest-first", async () => {
+  it("sorts drivers closest-first (Haversine fallback)", async () => {
     const near = makeCandidate("near", 9.012, 38.764);   // ~0.2 km from BOLE
     const far  = makeCandidate("far",  9.100, 38.850);   // ~13 km from BOLE
     const mid  = makeCandidate("mid",  9.040, 38.780);   // ~4 km from BOLE
@@ -49,7 +51,7 @@ describe("rankDriversByDistance", () => {
     expect(ranked[0].distanceKm).toBe(Infinity);
   });
 
-  it("attaches distanceKm to each result", async () => {
+  it("attaches a numeric distanceKm to each result", async () => {
     const driver = makeCandidate("d1", 9.012, 38.764);
     const [result] = await rankDriversByDistance("Bole", [driver], BOLE);
     expect(typeof result.distanceKm).toBe("number");
