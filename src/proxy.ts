@@ -178,9 +178,6 @@ export async function proxy(request: NextRequest) {
         loginUrl.searchParams.set("redirect", pathname);
         return NextResponse.redirect(loginUrl);
       }
-      // Admins who somehow land here → push to admin panel
-      const adminSession = await authAdmin.api.getSession({ headers: h });
-      if (adminSession) return NextResponse.redirect(new URL("/admin", request.url));
     }
 
     if (roleRequired === "driver") {
@@ -190,8 +187,6 @@ export async function proxy(request: NextRequest) {
         loginUrl.searchParams.set("redirect", pathname);
         return NextResponse.redirect(loginUrl);
       }
-      const adminSession = await authAdmin.api.getSession({ headers: h });
-      if (adminSession) return NextResponse.redirect(new URL("/admin", request.url));
     }
 
     if (roleRequired === "either") {
