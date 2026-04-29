@@ -326,8 +326,11 @@ DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/ecrp
 BETTER_AUTH_SECRET=your-secret-here
 BETTER_AUTH_URL=http://localhost:3000
 
-# Gebeta Maps API key
+# Gebeta Maps API key (used for map tiles + fallback geocoding)
 NEXT_PUBLIC_GEBETA_API_KEY=your-gebeta-api-key
+
+# PositionStack API key (primary geocoding — get one at positionstack.com)
+POSITIONSTACK_API_KEY=your-positionstack-api-key
 
 # Telegram Bot credentials (from @BotFather)
 TELEGRAM_BOT_TOKEN=123456789:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

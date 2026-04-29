@@ -1,5 +1,6 @@
 import { authDriver } from "@/lib/auth-driver";
 import { authPassenger } from "@/lib/auth-passenger";
+import { psGeocode } from "@/lib/positionstack";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -18,16 +19,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const apiKey = process.env.NEXT_PUBLIC_GEBETA_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "Gebeta API key not configured." }, { status: 503 });
-  }
-
   const body = await request.json().catch(() => ({}));
   const name = typeof body?.name === "string" ? body.name.trim() : "";
 
   if (!name) {
     return NextResponse.json({ error: "name is required." }, { status: 400 });
+  }
+
+  /* Try PositionStack first */
+  const psResult = await psGeocode(name);
+  if (psResult) {
+    return NextResponse.json({ lat: psResult.lat, lng: psResult.lng, name });
+  }
+
+  /* Fall back to Gebeta */
+  const apiKey = process.env.NEXT_PUBLIC_GEBETA_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json({ error: "No geocoding API key configured." }, { status: 503 });
   }
 
   try {
