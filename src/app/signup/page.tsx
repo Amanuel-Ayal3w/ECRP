@@ -10,7 +10,6 @@ import { driverAuthClient, passengerAuthClient } from "@/lib/auth-client";
 import {
   asQuery,
   parseAuthRole,
-  postSignupPath,
   telegramPath,
 } from "@/lib/auth-role";
 import { Mail, Send, UserRound } from "lucide-react";
@@ -60,7 +59,7 @@ function SignupForm() {
       return;
     }
     const client = role === "driver" ? driverAuthClient : passengerAuthClient;
-    const dest   = role === "driver" ? "/driver" : "/passenger";
+    const dest   = redirect ?? (role === "driver" ? "/driver" : "/passenger");
 
     setSubmitting(true);
     await client.signUp.email(
