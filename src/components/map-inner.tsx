@@ -45,6 +45,7 @@ export default function MapInner({
   const dotRef = useRef<HTMLDivElement | null>(null);
   const userLocRef = useRef<[number, number] | null>(null);
   const centeredOnUser = useRef(false);
+  const mapInstanceRef = useRef<ReturnType<GebetaMapRef["getMapInstance"]>>(null);
 
   /* Keep a stable ref to the latest userLocation so move-listener can read it */
   useEffect(() => {
@@ -67,6 +68,14 @@ export default function MapInner({
     const map = mapRef.current?.getMapInstance();
     if (!map) return;
 
+    /* Detect map recreation — old dot is orphaned, discard refs */
+    if (mapInstanceRef.current && mapInstanceRef.current !== map) {
+      dotRef.current = null;
+      listenerAttached.current = false;
+      centeredOnUser.current = false;
+    }
+    mapInstanceRef.current = map;
+
     if (!userLocation) {
       if (dotRef.current) {
         dotRef.current.style.display = "none";
@@ -76,7 +85,7 @@ export default function MapInner({
 
     userLocRef.current = userLocation;
 
-    if (!dotRef.current) {
+    if (!dotRef.current || !dotRef.current.isConnected) {
       ensurePulseStyle();
 
       /* Outer wrapper — absolutely positioned at top-left, moved via transform */
@@ -106,10 +115,10 @@ export default function MapInner({
     dotRef.current.style.display = "";
     repositionDot();
 
-    /* Fly to user once on first GPS fix */
+    /* Fly to user once on first GPS fix — zoom 15 for reliable tile coverage */
     if (!centeredOnUser.current) {
       centeredOnUser.current = true;
-      map.flyTo({ center: userLocation, zoom: 18, speed: 1.4, essential: true });
+      map.flyTo({ center: userLocation, zoom: 15, speed: 1.4, essential: true });
     }
   }, [userLocation, repositionDot]);
 
