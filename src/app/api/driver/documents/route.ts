@@ -1,6 +1,7 @@
 import { authDriver } from "@/lib/auth-driver";
 import { db } from "@/db";
-import { driverDocument } from "@/db/schema";
+import { driverDocument, driverUser } from "@/db/schema";
+import { pusherServer } from "@/lib/pusher-server";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
@@ -71,6 +72,23 @@ export async function POST(request: Request) {
     filePath: relPath, mimeType: file.type, fileSize: file.size,
     status: "pending", uploadedAt: new Date(),
   }).returning();
+
+  const [driver] = await db
+    .select({ name: driverUser.name })
+    .from(driverUser)
+    .where(eq(driverUser.id, session.user.id))
+    .limit(1);
+
+  pusherServer
+    .trigger("private-admin-docs", "document_uploaded", {
+      documentId:   doc.id,
+      driverId:     session.user.id,
+      driverName:   driver?.name ?? "Unknown driver",
+      docType:      doc.docType,
+      originalName: doc.originalName,
+      uploadedAt:   doc.uploadedAt,
+    })
+    .catch((err) => console.error("[pusher] doc notification failed", err));
 
   return NextResponse.json({ document: doc }, { status: 201 });
 }

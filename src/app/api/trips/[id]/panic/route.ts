@@ -69,6 +69,7 @@ export async function POST(
       id: randomUUID(),
       tripId: id,
       userName,
+      senderRole: isDriverOnTrip ? "driver" : "passenger",
       location,
       coordinates,
       severity,

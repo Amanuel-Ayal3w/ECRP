@@ -27,8 +27,9 @@ const TRANSITIONS: Partial<Record<RideStatus, Partial<Record<RideEvent, RideStat
     cancel:  "cancelled",
   },
   accepted: {
-    start:   "in_progress",
-    cancel:  "cancelled",
+    start:    "in_progress",
+    complete: "completed",
+    cancel:   "cancelled",
   },
   in_progress: {
     complete: "completed",

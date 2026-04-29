@@ -6,22 +6,50 @@ import { Label } from "@/components/ui/label";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ChevronRight } from "lucide-react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { toast } from "sonner";
 
 export default function DriverSetupPage() {
+  const router = useRouter();
   const [form, setForm] = useState({
     plate: "",
     capacity: "",
     model: "",
     licenseNumber: "",
   });
+  const [submitting, setSubmitting] = useState(false);
 
   const isComplete =
     form.plate.trim() &&
     form.capacity.trim() &&
     form.model.trim() &&
     form.licenseNumber.trim();
+
+  const handleActivate = async () => {
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/driver/me", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          plateNumber:   form.plate.trim(),
+          vehicleModel:  form.model.trim(),
+          capacity:      parseInt(form.capacity, 10),
+          licenseNumber: form.licenseNumber.trim(),
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        toast.error(data.error ?? "Failed to save profile.");
+        return;
+      }
+      router.push("/driver");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <main className="min-h-screen bg-background flex flex-col">
@@ -112,16 +140,15 @@ export default function DriverSetupPage() {
             </div>
           </div>
 
-          <Link href="/driver">
-            <Button
-              className="w-full gap-2"
-              disabled={!isComplete}
-              size="lg"
-            >
-              Activate Driver Profile
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-          </Link>
+          <Button
+            className="w-full gap-2"
+            disabled={!isComplete || submitting}
+            size="lg"
+            onClick={handleActivate}
+          >
+            {submitting ? "Saving…" : "Activate Driver Profile"}
+            <ChevronRight className="w-4 h-4" />
+          </Button>
         </div>
 
         <p className="text-xs text-muted-foreground text-center mt-4">

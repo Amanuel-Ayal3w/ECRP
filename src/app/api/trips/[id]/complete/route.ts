@@ -60,7 +60,18 @@ export async function POST(
           })
           .where(eq(driverProfile.userId, session.user.id));
       } else {
-        console.log(JSON.stringify({ event: "complete_no_profile", rideId: id, driverId: session.user.id }));
+        // Driver completed a trip before finishing onboarding — seed a minimal profile
+        // so the score is never silently dropped. Vehicle fields can be filled later.
+        await tx.insert(driverProfile).values({
+          userId:         session.user.id,
+          plateNumber:    `${session.user.id.slice(0, 8)}-TBD`,
+          vehicleModel:   "",
+          licenseNumber:  "",
+          capacity:       1,
+          serviceScore:   COMPLETION_SCORE_BONUS,
+          tripsCompleted: 1,
+          updatedAt:      now,
+        });
       }
     });
   } catch (err) {

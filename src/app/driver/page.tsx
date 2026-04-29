@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import {
   Bell,
@@ -14,7 +13,6 @@ import {
   Clock,
   MapPin,
   Navigation,
-  Star,
   TrendingUp,
   User,
   X,
@@ -440,7 +438,7 @@ export default function DriverDashboard() {
         return;
       }
       toast.success("Ride accepted");
-      router.push(`/trip/${activeTrip.id}`);
+      router.push(`/trip/${activeTrip.id}?as=driver`);
     } finally {
       setBusy(false);
     }
@@ -454,7 +452,7 @@ export default function DriverDashboard() {
         <div className="flex items-center gap-3">
           {driverStatus !== "offline" && (
             <span className="flex items-center gap-1.5 text-xs text-foreground">
-              <span className="w-1.5 h-1.5 rounded-full bg-foreground animate-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
               Live
             </span>
           )}
@@ -655,27 +653,29 @@ export default function DriverDashboard() {
           {serviceScore === null ? (
             <div className="animate-pulse space-y-2">
               <div className="h-8 w-24 bg-secondary rounded" />
-              <div className="h-1.5 bg-secondary rounded" />
+              <div className="h-3 w-32 bg-secondary rounded" />
             </div>
           ) : (
             <>
-              <div className="flex items-end gap-3 mb-3">
+              <div className="flex items-end gap-3 mb-1">
                 <span className="text-4xl font-bold tracking-tighter text-foreground">{serviceScore}</span>
-                <span className="text-sm text-muted-foreground mb-1">/ 1000 pts</span>
+                <span className="text-sm text-muted-foreground mb-1">pts</span>
               </div>
+              <p className="text-xs text-muted-foreground mb-4">+10 pts awarded per completed trip</p>
 
-              <Progress value={Math.min(100, (serviceScore / 1000) * 100)} className="h-1.5 bg-secondary mb-3" />
-
-              <div className="grid grid-cols-2 gap-3 mt-4">
-                {[
-                  { label: "Trips Completed", value: String(tripsCompleted ?? 0) },
-                  { label: "Score", value: `${serviceScore} pts` },
-                ].map((stat) => (
-                  <div key={stat.label} className="text-center p-2 rounded-md bg-secondary">
-                    <p className="font-bold text-sm text-foreground">{stat.value}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
-                  </div>
-                ))}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center p-2 rounded-md bg-secondary">
+                  <p className="font-bold text-sm text-foreground">{tripsCompleted ?? 0}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Trips</p>
+                </div>
+                <div className="text-center p-2 rounded-md bg-secondary">
+                  <p className="font-bold text-sm text-foreground">10 pts</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Per Trip</p>
+                </div>
+                <div className="text-center p-2 rounded-md bg-secondary">
+                  <p className="font-bold text-sm text-foreground">{(tripsCompleted ?? 0) * 10} pts</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Earned</p>
+                </div>
               </div>
             </>
           )}
@@ -713,16 +713,11 @@ export default function DriverDashboard() {
                   <p className="text-xs text-muted-foreground">
                     {t.endedAt ? new Date(t.endedAt).toLocaleDateString() : "-"}
                   </p>
-                  <div className="flex items-center justify-end gap-0.5 mt-0.5">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <Star
-                        key={s}
-                        className={`w-2.5 h-2.5 ${
-                          s <= (t.status === "completed" ? 4 : 2) ? "text-foreground fill-foreground" : "text-muted-foreground"
-                        }`}
-                      />
-                    ))}
-                  </div>
+                  {t.status === "completed" ? (
+                    <p className="text-xs font-semibold text-foreground mt-0.5">+10 pts</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-0.5 capitalize">{t.status}</p>
+                  )}
                 </div>
               </div>
             ))}

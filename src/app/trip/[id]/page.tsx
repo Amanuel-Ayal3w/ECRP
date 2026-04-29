@@ -8,7 +8,7 @@ import AppMap from "@/components/app-map";
 import BottomNav from "@/components/bottom-nav";
 import { useDriverSession, usePassengerSession } from "@/lib/auth-client";
 import { use, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { getPusherClient } from "@/lib/pusher-client";
 
@@ -26,17 +26,22 @@ type TripData = {
 export default function ActiveTripPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const { data: driverSession } = useDriverSession();
   const { data: passengerSession } = usePassengerSession();
 
-  // Derive role from whichever session is active — driver takes priority
-  // so a user with both cookies still lands on the right dashboard.
-  const actor: "driver" | "passenger" | null = driverSession
-    ? "driver"
-    : passengerSession
-    ? "passenger"
-    : null;
+  // Prefer the explicit ?as= param so a user with both sessions stored in the
+  // browser (common during testing) still lands on the correct dashboard.
+  const asParam = searchParams.get("as");
+  const actor: "driver" | "passenger" | null =
+    asParam === "driver" || asParam === "passenger"
+      ? asParam
+      : driverSession
+      ? "driver"
+      : passengerSession
+      ? "passenger"
+      : null;
 
   const [trip, setTrip] = useState<TripData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -116,16 +121,32 @@ export default function ActiveTripPage({ params }: { params: Promise<{ id: strin
     setTimeout(() => { setPanicOpen(false); setPanicSent(false); }, 3000);
   };
 
-  const handleEndTrip = async () => {
+  const handleFinishTrip = async () => {
+    setEnding(true);
+    try {
+      const res = await fetch(`/api/trips/${id}/complete`, { method: "POST", credentials: "include" });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(data.error ?? "Could not finish trip.");
+        return;
+      }
+      toast.success("Trip completed! Score awarded.");
+      router.push("/driver");
+    } finally {
+      setEnding(false);
+    }
+  };
+
+  const handleCancelTrip = async () => {
     setEnding(true);
     try {
       const res = await fetch(`/api/trips/${id}/cancel`, { method: "POST", credentials: "include" });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
-        toast.error(data.error ?? "Could not end trip.");
+        toast.error(data.error ?? "Could not cancel trip.");
         return;
       }
-      toast("Trip ended.");
+      toast("Trip cancelled.");
       router.push(actor === "driver" ? "/driver" : "/passenger");
     } finally {
       setEnding(false);
@@ -237,15 +258,35 @@ export default function ActiveTripPage({ params }: { params: Promise<{ id: strin
               Emergency Panic Button
             </Button>
 
-            {/* End trip */}
-            <Button
-              variant="outline"
-              className="w-full border-border text-muted-foreground text-sm"
-              onClick={handleEndTrip}
-              disabled={ending}
-            >
-              {ending ? "Ending…" : "End Trip Early"}
-            </Button>
+            {/* Trip actions */}
+            {actor === "driver" ? (
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  className="border-border text-muted-foreground text-sm"
+                  onClick={handleCancelTrip}
+                  disabled={ending}
+                >
+                  Cancel Trip
+                </Button>
+                <Button
+                  className="bg-foreground text-background text-sm font-semibold"
+                  onClick={handleFinishTrip}
+                  disabled={ending}
+                >
+                  {ending ? "Finishing…" : "Finish Trip"}
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="outline"
+                className="w-full border-border text-muted-foreground text-sm"
+                onClick={handleCancelTrip}
+                disabled={ending}
+              >
+                Cancel Trip
+              </Button>
+            )}
           </>
         )}
       </div>

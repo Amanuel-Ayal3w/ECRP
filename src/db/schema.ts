@@ -214,6 +214,7 @@ export const adminAlert = pgTable("admin_alert", {
   id:            text("id").primaryKey(),
   tripId:        text("tripId").references(() => rideRequest.id, { onDelete: "set null" }),
   userName:      text("userName").notNull(),
+  senderRole:    text("senderRole").$type<"driver" | "passenger">(),
   location:      text("location").notNull(),
   coordinates:   text("coordinates").notNull(),
   severity:      text("severity").notNull().default("medium"),
@@ -239,8 +240,11 @@ export const driverDocument = pgTable("driver_document", {
   /** bytes */
   fileSize:     bigint("fileSize", { mode: "number" }).notNull(),
   /** pending | verified | rejected */
-  status:       text("status").notNull().default("pending"),
-  uploadedAt:   timestamp("uploadedAt").notNull(),
+  status:            text("status").notNull().default("pending"),
+  uploadedAt:        timestamp("uploadedAt").notNull(),
+  reviewedByAdminId:   text("reviewedByAdminId").references(() => adminUser.id, { onDelete: "set null" }),
+  reviewedByAdminName: text("reviewedByAdminName"),
+  reviewedAt:          timestamp("reviewedAt"),
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

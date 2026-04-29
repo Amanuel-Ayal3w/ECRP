@@ -600,7 +600,7 @@ export default function PassengerDashboard() {
               </div>
             </div>
 
-            <Link href={activeRide ? `/trip/${activeRide.id}` : "/trip"}>
+            <Link href={activeRide ? `/trip/${activeRide.id}?as=passenger` : "/trip"}>
               <Button className="w-full" size="sm">
                 View Live Trip
               </Button>
