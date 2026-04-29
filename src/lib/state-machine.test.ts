@@ -62,8 +62,9 @@ describe("validateTransition", () => {
     it("cancel → cancelled", () => {
       expect(validateTransition("accepted", "cancel").nextStatus).toBe("cancelled");
     });
-    it("complete → invalid", () => {
-      expect(validateTransition("accepted", "complete").valid).toBe(false);
+    it("complete → completed (allowed without explicit start)", () => {
+      expect(validateTransition("accepted", "complete").valid).toBe(true);
+      expect(validateTransition("accepted", "complete").nextStatus).toBe("completed");
     });
   });
 

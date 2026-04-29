@@ -63,13 +63,13 @@ describe("POST /api/trips/:id/complete", () => {
     }
   });
 
-  it("returns 400 when trying to complete an accepted (not started) ride", async () => {
+  it("allows completing an accepted (not yet started) ride", async () => {
     const acceptedRide = makeRide(passenger.id, { status: "accepted", driverId: driver.id });
     await acceptedRide.seed();
 
     const req = new Request("http://localhost", { method: "POST" });
     const res = await POST(req, { params: Promise.resolve({ id: acceptedRide.id }) });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
   });
 
   it("transitions ride to completed and sets endedAt", async () => {

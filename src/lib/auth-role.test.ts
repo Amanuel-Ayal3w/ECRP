@@ -37,10 +37,10 @@ describe("auth-role helpers", () => {
   });
 
   it("returns telegram redirect paths", () => {
-    expect(telegramPath("driver")).toBe("/driver");
-    expect(telegramPath("passenger")).toBe("/passenger");
-    expect(telegramPath("admin")).toBe("/passenger");
-    expect(telegramPath(null)).toBe("/passenger");
+    expect(telegramPath("driver")).toBe("/telegram-auth?as=driver");
+    expect(telegramPath("passenger")).toBe("/telegram-auth?as=passenger");
+    expect(telegramPath("admin")).toBe("/telegram-auth?as=admin");
+    expect(telegramPath(null)).toBe("/telegram-auth");
   });
 
   it("builds role query strings", () => {
