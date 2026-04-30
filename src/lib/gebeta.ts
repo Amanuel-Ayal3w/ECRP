@@ -84,6 +84,29 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string |
 }
 
 /**
+ * Fetch the route polyline between two points via the Gebeta Direction API.
+ * Returns an ordered array of [lng, lat] pairs for MapLibre GL, or null on failure.
+ */
+export async function fetchRoutePoints(
+  from: GeoPoint,
+  to: GeoPoint,
+): Promise<[number, number][] | null> {
+  try {
+    const url = new URL("/api/gebeta/direction", window.location.origin);
+    url.searchParams.set("la1", String(from.lat));
+    url.searchParams.set("lo1", String(from.lng));
+    url.searchParams.set("la2", String(to.lat));
+    url.searchParams.set("lo2", String(to.lng));
+    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data.points) && data.points.length > 0 ? data.points : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Haversine great-circle distance between two points, in kilometres.
  * Accurate to ~0.5% for city-scale distances.
  */

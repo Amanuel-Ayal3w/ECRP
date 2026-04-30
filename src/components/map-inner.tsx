@@ -20,6 +20,8 @@ interface MapInnerProps {
   zoom?: number;
   markers?: MarkerDef[];
   userLocation?: [number, number] | null;
+  /** Ordered [lng, lat] pairs to draw as a route line on the map */
+  routePath?: [number, number][] | null;
 }
 
 function ensurePulseStyle() {
@@ -30,12 +32,16 @@ function ensurePulseStyle() {
   document.head.appendChild(s);
 }
 
+const ROUTE_SOURCE = "route-path";
+const ROUTE_LAYER = "route-path-line";
+
 export default function MapInner({
   apiKey,
   center = ADDIS,
   zoom = 13,
   markers = [],
   userLocation,
+  routePath,
 }: MapInnerProps) {
   const mapRef = useRef<GebetaMapRef>(null);
   const loaded = useRef(false);
@@ -46,6 +52,8 @@ export default function MapInner({
   const userLocRef = useRef<[number, number] | null>(null);
   const centeredOnUser = useRef(false);
   const mapInstanceRef = useRef<ReturnType<GebetaMapRef["getMapInstance"]>>(null);
+
+  const routePathRef = useRef<[number, number][] | null | undefined>(routePath);
 
   /* Keep a stable ref to the latest userLocation so move-listener can read it */
   useEffect(() => {
@@ -149,6 +157,42 @@ export default function MapInner({
     return () => clearTimeout(tid);
   }, []);
 
+  const renderRoutePath = useCallback(() => {
+    const map = mapRef.current?.getMapInstance();
+    if (!map || !loaded.current) return;
+
+    const coords = routePathRef.current;
+
+    // Remove existing layer/source before re-drawing
+    if (map.getLayer(ROUTE_LAYER)) map.removeLayer(ROUTE_LAYER);
+    if (map.getSource(ROUTE_SOURCE)) map.removeSource(ROUTE_SOURCE);
+
+    if (!coords || coords.length < 2) return;
+
+    map.addSource(ROUTE_SOURCE, {
+      type: "geojson",
+      data: {
+        type: "Feature",
+        properties: {},
+        geometry: { type: "LineString", coordinates: coords },
+      },
+    });
+
+    map.addLayer({
+      id: ROUTE_LAYER,
+      type: "line",
+      source: ROUTE_SOURCE,
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": "#000000", "line-width": 4, "line-opacity": 0.75 },
+    });
+  }, []);
+
+  // Sync routePath ref and re-draw whenever prop changes
+  useEffect(() => {
+    routePathRef.current = routePath;
+    if (loaded.current) renderRoutePath();
+  }, [routePath, renderRoutePath]);
+
   const renderMarkers = useCallback(() => {
     const ref = mapRef.current;
     if (!ref || !loaded.current) return;
@@ -165,9 +209,10 @@ export default function MapInner({
 
   const onMapLoaded = useCallback(() => {
     loaded.current = true;
+    renderRoutePath();
     renderMarkers();
     renderLocationDot();
-  }, [renderMarkers, renderLocationDot]);
+  }, [renderRoutePath, renderMarkers, renderLocationDot]);
 
   useEffect(() => { if (loaded.current) renderMarkers(); }, [renderMarkers]);
   useEffect(() => { if (loaded.current) renderLocationDot(); }, [renderLocationDot]);

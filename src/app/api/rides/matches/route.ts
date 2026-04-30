@@ -63,7 +63,7 @@ export async function GET(request: Request) {
 
   const eligible = onlineDrivers.filter((d) => !rejectedDriverIds.has(d.userId));
 
-  const ranked = await rankDriversByDistance(ride.pickup, eligible);
+  const ranked = await rankDriversByDistance(ride.pickup, ride.destination, eligible);
 
   // Re-attach name/email from the original eligible list (rankDriversByDistance
   // only knows about DriverCandidate fields, not the joined user data)

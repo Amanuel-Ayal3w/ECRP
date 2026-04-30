@@ -57,6 +57,8 @@ export interface AppMapProps {
   markers?: MarkerDef[];
   /** Renders a pulsing blue dot at the user's current GPS position */
   userLocation?: [number, number] | null;
+  /** Ordered [lng, lat] pairs to draw as a route line */
+  routePath?: [number, number][] | null;
   className?: string;
 }
 
@@ -66,6 +68,7 @@ export default function AppMap({
   zoom,
   markers,
   userLocation,
+  routePath,
   className = "",
 }: AppMapProps) {
 
@@ -87,6 +90,7 @@ export default function AppMap({
         zoom={zoom}
         markers={markers}
         userLocation={userLocation}
+        routePath={routePath}
       />
     </div>
   );

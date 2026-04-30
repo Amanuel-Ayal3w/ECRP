@@ -1,17 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { rankDriversByDistance, type DriverCandidate } from "./score-route";
 
+// Two reference points ~13 km apart
 const BOLE: { lat: number; lng: number } = { lat: 9.0105, lng: 38.7636 };
+const PIAZZA: { lat: number; lng: number } = { lat: 9.0368, lng: 38.7531 };
 
-function makeCandidate(id: string, lat: number | null, lng: number | null): DriverCandidate {
+function makeCandidate(
+  id: string,
+  startLat: number | null,
+  startLng: number | null,
+  endLat: number | null = null,
+  endLng: number | null = null,
+): DriverCandidate {
   return {
     userId: id,
-    routeStart: lat != null ? "Start" : null,
-    routeEnd: lng != null ? "End" : null,
-    routeStartLat: lat,
-    routeStartLng: lng,
-    routeEndLat: null,
-    routeEndLng: null,
+    routeStart: startLat != null ? "Start" : null,
+    routeEnd: endLat != null ? "End" : null,
+    routeStartLat: startLat,
+    routeStartLng: startLng,
+    routeEndLat: endLat,
+    routeEndLng: endLng,
   };
 }
 
@@ -19,51 +27,60 @@ function makeCandidate(id: string, lat: number | null, lng: number | null): Driv
 // API is skipped and Haversine is used as the fallback for all distance values.
 describe("rankDriversByDistance", () => {
   it("returns empty array when no drivers given", async () => {
-    const result = await rankDriversByDistance("Bole", [], BOLE);
+    const result = await rankDriversByDistance("Bole", "Piazza", [], BOLE, PIAZZA);
     expect(result).toEqual([]);
   });
 
-  it("sorts drivers closest-first (Haversine fallback)", async () => {
-    const near = makeCandidate("near", 9.012, 38.764);   // ~0.2 km from BOLE
-    const far  = makeCandidate("far",  9.100, 38.850);   // ~13 km from BOLE
-    const mid  = makeCandidate("mid",  9.040, 38.780);   // ~4 km from BOLE
+  it("returns only drivers within 1 km of both pickup and destination", async () => {
+    // close to BOLE pickup and PIAZZA destination — should match
+    const good = makeCandidate("good", 9.012, 38.764, 9.037, 38.753);
+    // far from pickup
+    const badStart = makeCandidate("badStart", 9.100, 38.850, 9.037, 38.753);
+    // far from destination
+    const badEnd = makeCandidate("badEnd", 9.012, 38.764, 9.100, 38.850);
 
-    const ranked = await rankDriversByDistance("Bole", [far, mid, near], BOLE);
+    const ranked = await rankDriversByDistance("Bole", "Piazza", [good, badStart, badEnd], BOLE, PIAZZA);
 
-    expect(ranked.map((d) => d.userId)).toEqual(["near", "mid", "far"]);
+    expect(ranked.map((d) => d.userId)).toEqual(["good"]);
   });
 
-  it("pushes drivers without coordinates to the end with Infinity distance", async () => {
-    const withCoords    = makeCandidate("withCoords",    9.012, 38.764);
-    const withoutCoords = makeCandidate("withoutCoords", null,  null);
+  it("sorts eligible drivers by combined distance (closest first)", async () => {
+    // very close to both ends
+    const near = makeCandidate("near", 9.011, 38.764, 9.037, 38.753);
+    // slightly farther but still within 1 km
+    const mid = makeCandidate("mid", 9.013, 38.765, 9.038, 38.754);
 
-    const ranked = await rankDriversByDistance("Bole", [withoutCoords, withCoords], BOLE);
+    const ranked = await rankDriversByDistance("Bole", "Piazza", [mid, near], BOLE, PIAZZA);
 
-    expect(ranked[0].userId).toBe("withCoords");
-    expect(ranked[1].userId).toBe("withoutCoords");
-    expect(ranked[1].distanceKm).toBe(Infinity);
+    expect(ranked[0].userId).toBe("near");
+    expect(ranked[1].userId).toBe("mid");
   });
 
-  it("assigns Infinity when no pickup coords and driver has no coords", async () => {
-    // passing null as preGeocodedPickup forces all drivers to Infinity
-    const driver = makeCandidate("d1", null, null);
-    const ranked = await rankDriversByDistance("Nowhere", [driver], null);
-    expect(ranked[0].distanceKm).toBe(Infinity);
+  it("excludes drivers missing start or end coordinates", async () => {
+    const noStart = makeCandidate("noStart", null, null, 9.037, 38.753);
+    const noEnd = makeCandidate("noEnd", 9.012, 38.764, null, null);
+    const both = makeCandidate("both", 9.012, 38.764, 9.037, 38.753);
+
+    const ranked = await rankDriversByDistance("Bole", "Piazza", [noStart, noEnd, both], BOLE, PIAZZA);
+
+    expect(ranked.map((d) => d.userId)).toEqual(["both"]);
   });
 
-  it("attaches a numeric distanceKm to each result", async () => {
-    const driver = makeCandidate("d1", 9.012, 38.764);
-    const [result] = await rankDriversByDistance("Bole", [driver], BOLE);
+  it("attaches numeric distanceKm and endDistanceKm to results", async () => {
+    const driver = makeCandidate("d1", 9.012, 38.764, 9.037, 38.753);
+    const [result] = await rankDriversByDistance("Bole", "Piazza", [driver], BOLE, PIAZZA);
     expect(typeof result.distanceKm).toBe("number");
+    expect(typeof result.endDistanceKm).toBe("number");
     expect(result.distanceKm).toBeGreaterThanOrEqual(0);
-    expect(result.distanceKm).toBeLessThan(5);
+    expect(result.endDistanceKm).toBeGreaterThanOrEqual(0);
   });
 
   it("preserves all original DriverCandidate fields", async () => {
-    const driver = makeCandidate("d1", 9.012, 38.764);
-    const [result] = await rankDriversByDistance("Bole", [driver], BOLE);
+    const driver = makeCandidate("d1", 9.012, 38.764, 9.037, 38.753);
+    const [result] = await rankDriversByDistance("Bole", "Piazza", [driver], BOLE, PIAZZA);
     expect(result.userId).toBe("d1");
     expect(result.routeStart).toBe("Start");
     expect(result.routeStartLat).toBe(9.012);
+    expect(result.routeEndLat).toBe(9.037);
   });
 });

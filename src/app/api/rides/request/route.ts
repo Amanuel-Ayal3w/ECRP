@@ -54,7 +54,12 @@ export async function POST(request: Request) {
       ? { lat: body.pickupLat, lng: body.pickupLng }
       : null;
 
-  const ranked = await rankDriversByDistance(pickup, onlineDrivers, pickupCoords);
+  const destCoords =
+    body.destLat != null && body.destLng != null
+      ? { lat: body.destLat, lng: body.destLng }
+      : null;
+
+  const ranked = await rankDriversByDistance(pickup, destination, onlineDrivers, pickupCoords, destCoords);
   const bestDriver = ranked[0] ?? null;
 
   const now = new Date();

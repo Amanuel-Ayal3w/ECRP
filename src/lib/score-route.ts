@@ -2,6 +2,7 @@ import { geocodePlace, haversineKm, type GeoPoint } from "./gebeta";
 
 const GEBETA_MATRIX_URL = "https://mapapi.gebeta.app/api/v1/route/matrix";
 const MATRIX_BATCH_SIZE = 24; // Gebeta allows up to 25 points per request (1 origin + 24 dest)
+const PROXIMITY_KM = 1; // driver route start/end must be within this distance of passenger pickup/destination
 
 export interface DriverCandidate {
   userId: string;
@@ -14,8 +15,10 @@ export interface DriverCandidate {
 }
 
 export interface RankedDriver extends DriverCandidate {
-  /** Road distance in km from passenger pickup to driver route start (Matrix API), or straight-line (Haversine fallback). */
+  /** Road distance in km from passenger pickup to driver route start. */
   distanceKm: number;
+  /** Road distance in km from passenger destination to driver route end. */
+  endDistanceKm: number;
 }
 
 /**
@@ -64,76 +67,78 @@ async function matrixDistancesKm(
 }
 
 /**
- * Rank online drivers by road distance to the passenger's pickup location.
+ * Rank online drivers whose routes align with the passenger's pickup and destination.
+ *
+ * A driver is eligible only if:
+ *   - Their route start is within PROXIMITY_KM (1 km) of the passenger's pickup.
+ *   - Their route end is within PROXIMITY_KM (1 km) of the passenger's destination.
  *
  * Algorithm:
- *   1. Geocode the passenger's pickup text → coordinates (one API call, skipped if preGeocodedPickup provided).
- *   2. Call Gebeta Matrix API with pickup as origin and each driver's stored routeStartLat/Lng as destinations.
- *      Falls back to Haversine straight-line distance per driver when Matrix is unavailable.
- *   3. Sort ascending — closest driver first.
+ *   1. Geocode pickup and destination (skipped when pre-geocoded coords are provided).
+ *   2. Call Gebeta Matrix API twice: pickup→routeStarts and destination→routeEnds.
+ *      Falls back to Haversine when Matrix is unavailable.
+ *   3. Filter out drivers where either distance exceeds PROXIMITY_KM.
+ *   4. Sort ascending by combined distance (pickup gap + destination gap).
  *
- * Drivers without stored coordinates receive distanceKm = Infinity and sort to the end.
- * They are still returned as candidates so a ride can still be matched.
+ * Drivers without stored coordinates are excluded — their route cannot be verified.
  *
- * @returns Drivers sorted closest-first. Empty array if no drivers supplied.
+ * @returns Eligible drivers sorted closest-first. Empty array if none qualify.
  */
 export async function rankDriversByDistance(
   pickup: string,
+  destination: string,
   drivers: DriverCandidate[],
   preGeocodedPickup?: GeoPoint | null,
+  preGeocodedDestination?: GeoPoint | null,
 ): Promise<RankedDriver[]> {
   if (drivers.length === 0) return [];
 
-  const pickupCoords: GeoPoint | null = preGeocodedPickup ?? await geocodePlace(pickup);
+  const [pickupCoords, destCoords] = await Promise.all([
+    preGeocodedPickup !== undefined ? Promise.resolve(preGeocodedPickup) : geocodePlace(pickup),
+    preGeocodedDestination !== undefined ? Promise.resolve(preGeocodedDestination) : geocodePlace(destination),
+  ]);
 
-  // Separate drivers that have stored coords from those that don't
-  const withCoords: Array<{ driver: DriverCandidate; dest: GeoPoint; originalIndex: number }> = [];
-  const withoutCoords: Array<{ driver: DriverCandidate; originalIndex: number }> = [];
+  // Only drivers with both start and end coords can be proximity-checked
+  const withCoords: Array<{ driver: DriverCandidate; startPt: GeoPoint; endPt: GeoPoint }> = [];
 
-  drivers.forEach((driver, i) => {
-    if (driver.routeStartLat != null && driver.routeStartLng != null) {
+  for (const driver of drivers) {
+    if (
+      driver.routeStartLat != null && driver.routeStartLng != null &&
+      driver.routeEndLat != null && driver.routeEndLng != null
+    ) {
       withCoords.push({
         driver,
-        dest: { lat: driver.routeStartLat, lng: driver.routeStartLng },
-        originalIndex: i,
+        startPt: { lat: driver.routeStartLat, lng: driver.routeStartLng },
+        endPt: { lat: driver.routeEndLat, lng: driver.routeEndLng },
       });
-    } else {
-      withoutCoords.push({ driver, originalIndex: i });
     }
-  });
-
-  const ranked: RankedDriver[] = new Array(drivers.length);
-
-  // Drivers without coords always get Infinity
-  withoutCoords.forEach(({ driver, originalIndex }) => {
-    ranked[originalIndex] = { ...driver, distanceKm: Infinity };
-  });
-
-  if (withCoords.length > 0) {
-    let matrixKm: number[] = [];
-
-    if (pickupCoords) {
-      matrixKm = await matrixDistancesKm(
-        pickupCoords,
-        withCoords.map((w) => w.dest),
-      );
-    }
-
-    withCoords.forEach(({ driver, dest, originalIndex }, j) => {
-      let distanceKm: number;
-
-      if (matrixKm[j] !== undefined && matrixKm[j] !== Infinity) {
-        distanceKm = matrixKm[j];
-      } else if (pickupCoords) {
-        // Matrix unavailable for this driver — fall back to straight-line
-        distanceKm = haversineKm(dest, pickupCoords);
-      } else {
-        distanceKm = Infinity;
-      }
-
-      ranked[originalIndex] = { ...driver, distanceKm };
-    });
   }
 
-  return ranked.sort((a, b) => a.distanceKm - b.distanceKm);
+  if (withCoords.length === 0) return [];
+
+  // Fetch road distances for pickup→routeStarts and destination→routeEnds in parallel
+  const startPts = withCoords.map((w) => w.startPt);
+  const endPts = withCoords.map((w) => w.endPt);
+
+  const [startDistances, endDistances] = await Promise.all([
+    pickupCoords ? matrixDistancesKm(pickupCoords, startPts) : Promise.resolve(startPts.map(() => Infinity)),
+    destCoords ? matrixDistancesKm(destCoords, endPts) : Promise.resolve(endPts.map(() => Infinity)),
+  ]);
+
+  const eligible: RankedDriver[] = [];
+
+  withCoords.forEach(({ driver, startPt, endPt }, i) => {
+    let pickupGap = startDistances[i];
+    let destGap = endDistances[i];
+
+    // Fall back to Haversine when Matrix didn't return a distance
+    if (pickupGap === Infinity && pickupCoords) pickupGap = haversineKm(pickupCoords, startPt);
+    if (destGap === Infinity && destCoords) destGap = haversineKm(destCoords, endPt);
+
+    if (pickupGap <= PROXIMITY_KM && destGap <= PROXIMITY_KM) {
+      eligible.push({ ...driver, distanceKm: pickupGap, endDistanceKm: destGap });
+    }
+  });
+
+  return eligible.sort((a, b) => (a.distanceKm + a.endDistanceKm) - (b.distanceKm + b.endDistanceKm));
 }
