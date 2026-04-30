@@ -7,7 +7,18 @@ import * as passengerSchema from "@/db/schema-passenger";
 export const authPassenger = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema: passengerSchema }),
 
+  baseURL: process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL,
+
   basePath: "/api/auth",
+
+  trustedOrigins: [
+    ...(process.env.BETTER_AUTH_URL ? [process.env.BETTER_AUTH_URL] : []),
+    ...(process.env.NEXT_PUBLIC_APP_URL ? [process.env.NEXT_PUBLIC_APP_URL] : []),
+    // Allow all vusercontent.net preview domains
+    /https:\/\/.*\.vusercontent\.net/,
+    // Allow localhost for development
+    "http://localhost:3000",
+  ],
 
   advanced: {
     cookiePrefix: "ba-passenger",

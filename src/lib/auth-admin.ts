@@ -7,7 +7,16 @@ import * as adminSchema from "@/db/schema-admin";
 export const authAdmin = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema: adminSchema }),
 
+  baseURL: process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL,
+
   basePath: "/api/admin-auth",
+
+  trustedOrigins: [
+    ...(process.env.BETTER_AUTH_URL ? [process.env.BETTER_AUTH_URL] : []),
+    ...(process.env.NEXT_PUBLIC_APP_URL ? [process.env.NEXT_PUBLIC_APP_URL] : []),
+    /https:\/\/.*\.vusercontent\.net/,
+    "http://localhost:3000",
+  ],
 
   advanced: {
     cookiePrefix: "ba-admin",

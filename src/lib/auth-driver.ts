@@ -7,7 +7,16 @@ import * as driverSchema from "@/db/schema-driver";
 export const authDriver = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema: driverSchema }),
 
+  baseURL: process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL,
+
   basePath: "/api/driver-auth",
+
+  trustedOrigins: [
+    ...(process.env.BETTER_AUTH_URL ? [process.env.BETTER_AUTH_URL] : []),
+    ...(process.env.NEXT_PUBLIC_APP_URL ? [process.env.NEXT_PUBLIC_APP_URL] : []),
+    /https:\/\/.*\.vusercontent\.net/,
+    "http://localhost:3000",
+  ],
 
   advanced: {
     cookiePrefix: "ba-driver",
