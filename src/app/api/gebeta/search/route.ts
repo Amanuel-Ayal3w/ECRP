@@ -1,4 +1,4 @@
-import { psSearch } from "@/lib/positionstack";
+import { liqSearch } from "@/lib/locationiq";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -9,10 +9,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ results: [] });
   }
 
-  /* Try PositionStack first */
-  const psResults = await psSearch(q);
-  if (psResults.length > 0) {
-    return NextResponse.json({ results: psResults });
+  /* Try LocationIQ first */
+  const liqResults = await liqSearch(q);
+  if (liqResults.length > 0) {
+    return NextResponse.json({ results: liqResults });
   }
 
   /* Fall back to Gebeta */

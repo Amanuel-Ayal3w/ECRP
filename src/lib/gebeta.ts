@@ -1,4 +1,4 @@
-import { psGeocode } from "./positionstack";
+import { liqGeocode } from "./locationiq";
 
 const GEBETA_BASE = "https://mapapi.gebeta.app/api/v1/route";
 
@@ -9,14 +9,14 @@ export interface GeoPoint {
 
 /**
  * Forward-geocode a place name to coordinates.
- * Tries PositionStack first (if POSITIONSTACK_API_KEY is set),
+ * Tries LocationIQ first (if LOCATIONIQ_API_KEY is set),
  * then falls back to Gebeta.
  */
 export async function geocodePlace(name: string): Promise<GeoPoint | null> {
   if (!name.trim()) return null;
 
-  const psResult = await psGeocode(name);
-  if (psResult) return psResult;
+  const liqResult = await liqGeocode(name);
+  if (liqResult) return liqResult;
 
   return geocodePlaceGebeta(name);
 }

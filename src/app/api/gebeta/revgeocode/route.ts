@@ -1,4 +1,4 @@
-import { psReverseGeocode } from "@/lib/positionstack";
+import { liqReverseGeocode } from "@/lib/locationiq";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -10,10 +10,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ name: null });
   }
 
-  /* Try PositionStack first */
-  const psName = await psReverseGeocode(Number(lat), Number(lng));
-  if (psName) {
-    return NextResponse.json({ name: psName });
+  /* Try LocationIQ first */
+  const liqName = await liqReverseGeocode(Number(lat), Number(lng));
+  if (liqName) {
+    return NextResponse.json({ name: liqName });
   }
 
   /* Fall back to Gebeta */

@@ -1,6 +1,6 @@
 import { authDriver } from "@/lib/auth-driver";
 import { authPassenger } from "@/lib/auth-passenger";
-import { psGeocode } from "@/lib/positionstack";
+import { liqGeocode } from "@/lib/locationiq";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -26,10 +26,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "name is required." }, { status: 400 });
   }
 
-  /* Try PositionStack first */
-  const psResult = await psGeocode(name);
-  if (psResult) {
-    return NextResponse.json({ lat: psResult.lat, lng: psResult.lng, name });
+  /* Try LocationIQ first */
+  const liqResult = await liqGeocode(name);
+  if (liqResult) {
+    return NextResponse.json({ lat: liqResult.lat, lng: liqResult.lng, name });
   }
 
   /* Fall back to Gebeta */
