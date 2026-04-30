@@ -327,7 +327,9 @@ export default function DriverDashboard() {
         body: JSON.stringify({
           routeStart: routeStart.trim(),
           routeEnd: routeEnd.trim(),
-          ...(routeStartCoords && { routeStartLat: routeStartCoords.lat, routeStartLng: routeStartCoords.lng }),
+          ...(routeStartCoords
+            ? { routeStartLat: routeStartCoords.lat, routeStartLng: routeStartCoords.lng }
+            : userLocation && { routeStartLat: userLocation[1], routeStartLng: userLocation[0] }),
           ...(routeEndCoords && { routeEndLat: routeEndCoords.lat, routeEndLng: routeEndCoords.lng }),
         }),
       });

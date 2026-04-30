@@ -309,7 +309,9 @@ export default function PassengerDashboard() {
         body: JSON.stringify({
           pickup: pickup.trim(),
           destination: destination.trim(),
-          ...(pickupCoords && { pickupLat: pickupCoords.lat, pickupLng: pickupCoords.lng }),
+          ...(pickupCoords
+            ? { pickupLat: pickupCoords.lat, pickupLng: pickupCoords.lng }
+            : userLocation && { pickupLat: userLocation[1], pickupLng: userLocation[0] }),
           ...(destCoords && { destLat: destCoords.lat, destLng: destCoords.lng }),
         }),
       });
