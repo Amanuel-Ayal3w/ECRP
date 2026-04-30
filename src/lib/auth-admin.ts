@@ -12,10 +12,11 @@ export const authAdmin = betterAuth({
   basePath: "/api/admin-auth",
 
   trustedOrigins: [
+    "https://ecrp-et.vercel.app",
+    "https://*.vercel.app",
+    "http://localhost:3000",
     ...(process.env.BETTER_AUTH_URL ? [process.env.BETTER_AUTH_URL] : []),
     ...(process.env.NEXT_PUBLIC_APP_URL ? [process.env.NEXT_PUBLIC_APP_URL] : []),
-    /https:\/\/.*\.vusercontent\.net/,
-    "http://localhost:3000",
   ],
 
   advanced: {
