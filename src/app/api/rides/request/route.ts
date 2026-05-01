@@ -1,7 +1,7 @@
 import { authPassenger } from "@/lib/auth-passenger";
 import { db } from "@/db";
 import { driverAvailability, rideRequest } from "@/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { generateId } from "@/lib/generate-id";
@@ -36,18 +36,32 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Pickup and destination cannot be the same." }, { status: 400 });
   }
 
-  const onlineDrivers = await db
-    .select({
-      userId: driverAvailability.userId,
-      routeStart: driverAvailability.routeStart,
-      routeEnd: driverAvailability.routeEnd,
-      routeStartLat: driverAvailability.routeStartLat,
-      routeStartLng: driverAvailability.routeStartLng,
-      routeEndLat: driverAvailability.routeEndLat,
-      routeEndLng: driverAvailability.routeEndLng,
-    })
-    .from(driverAvailability)
-    .where(eq(driverAvailability.isOnline, true));
+  // Drivers who already have an active ride must not be matched again
+  const activeRides = await db
+    .select({ driverId: rideRequest.matchedDriverId })
+    .from(rideRequest)
+    .where(
+      and(
+        inArray(rideRequest.status, ["matched", "accepted", "in_progress"]),
+        isNotNull(rideRequest.matchedDriverId),
+      ),
+    );
+  const busyDriverIds = new Set(activeRides.map((r) => r.driverId).filter(Boolean));
+
+  const onlineDrivers = (
+    await db
+      .select({
+        userId: driverAvailability.userId,
+        routeStart: driverAvailability.routeStart,
+        routeEnd: driverAvailability.routeEnd,
+        routeStartLat: driverAvailability.routeStartLat,
+        routeStartLng: driverAvailability.routeStartLng,
+        routeEndLat: driverAvailability.routeEndLat,
+        routeEndLng: driverAvailability.routeEndLng,
+      })
+      .from(driverAvailability)
+      .where(eq(driverAvailability.isOnline, true))
+  ).filter((d) => !busyDriverIds.has(d.userId));
 
   const pickupCoords =
     body.pickupLat != null && body.pickupLng != null

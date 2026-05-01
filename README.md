@@ -49,7 +49,8 @@ Browser (React 19)
     └── External Services
             ├── PostgreSQL          → Persistent data store (via Drizzle ORM)
             ├── Pusher              → Managed WebSockets for live GPS & alerts
-            └── Gebeta Maps         → Geocoding, Matrix API, map tiles
+            ├── LocationIQ          → Primary geocoding (place name → coordinates)
+            └── Gebeta Maps         → Matrix API, Direction API, map tiles
 ```
 
 ### Key Design Decisions
@@ -99,7 +100,7 @@ After login, users who have not yet selected a role are redirected to `/onboardi
 
 ### 2. Ride Matching
 
-1. Passenger submits pickup + destination → geocoded to `[lat, lng]` via Gebeta Maps.
+1. Passenger submits pickup + destination → geocoded to `[lat, lng]` via LocationIQ (Gebeta fallback).
 2. Server queries all online drivers and uses the **Gebeta Matrix API** to score each driver's declared route against the passenger's pickup point.
 3. The best-matching driver receives a Pusher notification.
 4. Driver explicitly **accepts** or **rejects**; rejection records prevent re-matching the same driver.
@@ -329,8 +330,8 @@ BETTER_AUTH_URL=http://localhost:3000
 # Gebeta Maps API key (used for map tiles + fallback geocoding)
 NEXT_PUBLIC_GEBETA_API_KEY=your-gebeta-api-key
 
-# PositionStack API key (primary geocoding — get one at positionstack.com)
-POSITIONSTACK_API_KEY=your-positionstack-api-key
+# LocationIQ API key (primary geocoding — get one at locationiq.com)
+LOCATIONIQ_API_KEY=your-locationiq-api-key
 
 # Telegram Bot credentials (from @BotFather)
 TELEGRAM_BOT_TOKEN=123456789:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -343,7 +344,15 @@ PUSHER_SECRET=your-secret
 PUSHER_CLUSTER=your-cluster
 NEXT_PUBLIC_PUSHER_KEY=your-key
 NEXT_PUBLIC_PUSHER_CLUSTER=your-cluster
+
+# Super admin seed credentials — required before running npm run db:seed
+# ADMIN_NAME is optional (defaults to "ECRP Super Admin")
+ADMIN_EMAIL=your-admin-email
+ADMIN_PASSWORD=your-strong-password
+ADMIN_NAME=ECRP Super Admin
 ```
+
+> **Security note:** `ADMIN_EMAIL` and `ADMIN_PASSWORD` have no hardcoded defaults. `npm run db:seed` will exit with an error if either is missing.
 
 ---
 

@@ -13,7 +13,6 @@ import {
   MapPin,
   Navigation,
   Search,
-  Star,
   User,
   X,
 } from "lucide-react";
@@ -45,7 +44,8 @@ type RideMatch = {
   email: string;
   routeStart: string | null;
   routeEnd: string | null;
-  score: number;
+  serviceScore: number;
+  tripsCompleted: number;
 };
 
 type HistoryTrip = {
@@ -510,15 +510,13 @@ export default function PassengerDashboard() {
                     ? `${match.routeStart ?? "-"} → ${match.routeEnd ?? "-"}`
                     : "Driver details loading…"}
                 </p>
-                <div className="flex items-center gap-1 mt-1">
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <Star
-                      key={s}
-                      className={`w-3 h-3 ${match && s <= Math.round(match.score / 10) ? "text-foreground fill-foreground" : "text-muted-foreground"}`}
-                    />
-                  ))}
-                  <span className="text-xs text-muted-foreground ml-1">
-                    {match ? (match.score / 10).toFixed(1) : "--"}
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-muted-foreground">
+                    {match ? `${match.serviceScore} pts` : "--"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">·</span>
+                  <span className="text-xs text-muted-foreground">
+                    {match ? `${match.tripsCompleted} trips` : "--"}
                   </span>
                 </div>
               </div>
@@ -570,15 +568,13 @@ export default function PassengerDashboard() {
                     ? `${match.routeStart ?? "-"} → ${match.routeEnd ?? "-"}`
                     : "Driver details loading…"}
                 </p>
-                <div className="flex items-center gap-1 mt-1">
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <Star
-                      key={s}
-                      className={`w-3 h-3 ${match && s <= Math.round(match.score / 10) ? "text-foreground fill-foreground" : "text-muted-foreground"}`}
-                    />
-                  ))}
-                  <span className="text-xs text-muted-foreground ml-1">
-                    {match ? (match.score / 10).toFixed(1) : "--"}
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-muted-foreground">
+                    {match ? `${match.serviceScore} pts` : "--"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">·</span>
+                  <span className="text-xs text-muted-foreground">
+                    {match ? `${match.tripsCompleted} trips` : "--"}
                   </span>
                 </div>
               </div>
@@ -640,16 +636,14 @@ export default function PassengerDashboard() {
                     <Clock className="w-3 h-3" />
                     {ride.endedAt ? new Date(ride.endedAt).toLocaleDateString() : "-"}
                   </p>
-                  <div className="flex items-center justify-end gap-0.5 mt-0.5">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <Star
-                        key={s}
-                        className={`w-2.5 h-2.5 ${
-                          s <= (ride.status === "completed" ? 4 : 2) ? "text-foreground fill-foreground" : "text-muted-foreground"
-                        }`}
-                      />
-                    ))}
-                  </div>
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] mt-0.5 border-border capitalize ${
+                      ride.status === "completed" ? "text-foreground" : "text-muted-foreground"
+                    }`}
+                  >
+                    {ride.status}
+                  </Badge>
                 </div>
               </div>
             ))}
