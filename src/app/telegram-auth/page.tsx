@@ -9,6 +9,7 @@ import { Suspense, useEffect, useRef } from "react";
 
 const BOT_USERNAME = (process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? "").replace(/^@/, "");
 const APP_ORIGIN = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+const TELEGRAM_REQUEST_ACCESS = (process.env.NEXT_PUBLIC_TELEGRAM_REQUEST_ACCESS ?? "read").toLowerCase();
 
 function TelegramAuthForm() {
   const searchParams = useSearchParams();
@@ -31,7 +32,8 @@ function TelegramAuthForm() {
     script.setAttribute("data-telegram-login", BOT_USERNAME);
     script.setAttribute("data-size", "large");
     script.setAttribute("data-auth-url", callbackUrl);
-    script.setAttribute("data-request-access", "write");
+    // Default to read-only login to avoid Telegram message confirmation bottlenecks.
+    script.setAttribute("data-request-access", TELEGRAM_REQUEST_ACCESS === "write" ? "write" : "read");
     script.async = true;
     containerRef.current.appendChild(script);
   }, [callbackUrl]);

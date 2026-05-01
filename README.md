@@ -336,6 +336,8 @@ LOCATIONIQ_API_KEY=your-locationiq-api-key
 # Telegram Bot credentials (from @BotFather)
 TELEGRAM_BOT_TOKEN=123456789:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=YourBotUsername
+# Optional: "read" (default) avoids extra message confirmation prompts, "write" asks for bot messaging permission
+NEXT_PUBLIC_TELEGRAM_REQUEST_ACCESS=read
 
 # Pusher credentials (from pusher.com dashboard)
 PUSHER_APP_ID=your-app-id
