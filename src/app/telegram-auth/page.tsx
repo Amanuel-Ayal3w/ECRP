@@ -33,7 +33,10 @@ function TelegramAuthForm() {
     script.setAttribute("data-size", "large");
     script.setAttribute("data-auth-url", callbackUrl);
     // Default to read-only login to avoid Telegram message confirmation bottlenecks.
-    script.setAttribute("data-request-access", TELEGRAM_REQUEST_ACCESS === "write" ? "write" : "read");
+    // Only set when write access is explicitly requested — omitting it means read-only (Telegram default)
+    if (TELEGRAM_REQUEST_ACCESS === "write") {
+      script.setAttribute("data-request-access", "write");
+    }
     script.async = true;
     containerRef.current.appendChild(script);
   }, [callbackUrl]);
