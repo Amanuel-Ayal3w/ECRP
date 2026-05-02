@@ -11,6 +11,7 @@ function makeCandidate(
   startLng: number | null,
   endLat: number | null = null,
   endLng: number | null = null,
+  serviceScore: number | null = null,
 ): DriverCandidate {
   return {
     userId: id,
@@ -20,6 +21,7 @@ function makeCandidate(
     routeStartLng: startLng,
     routeEndLat: endLat,
     routeEndLng: endLng,
+    serviceScore,
   };
 }
 
@@ -82,5 +84,36 @@ describe("rankDriversByDistance", () => {
     expect(result.routeStart).toBe("Start");
     expect(result.routeStartLat).toBe(9.012);
     expect(result.routeEndLat).toBe(9.037);
+  });
+
+  it("uses serviceScore as a tiebreaker — higher score wins at similar distance", async () => {
+    // Both drivers are at roughly the same distance from pickup/destination
+    const lowScore = makeCandidate("low", 9.012, 38.764, 9.037, 38.753, 0);
+    const highScore = makeCandidate("high", 9.012, 38.764, 9.037, 38.753, 100);
+
+    const ranked = await rankDriversByDistance("Bole", "Piazza", [lowScore, highScore], BOLE, PIAZZA);
+
+    expect(ranked[0].userId).toBe("high");
+    expect(ranked[1].userId).toBe("low");
+  });
+
+  it("still prefers a closer driver over a higher-scored but farther driver", async () => {
+    // very close to both ends, low score
+    const close = makeCandidate("close", 9.0106, 38.7637, 9.0369, 38.7532, 10);
+    // farther but within 1 km, high score (but not enough to overcome distance)
+    const far = makeCandidate("far", 9.016, 38.769, 9.042, 38.758, 50);
+
+    const ranked = await rankDriversByDistance("Bole", "Piazza", [far, close], BOLE, PIAZZA);
+
+    expect(ranked[0].userId).toBe("close");
+  });
+
+  it("handles null serviceScore the same as zero", async () => {
+    const withNull = makeCandidate("null", 9.012, 38.764, 9.037, 38.753, null);
+    const withZero = makeCandidate("zero", 9.012, 38.764, 9.037, 38.753, 0);
+
+    const ranked = await rankDriversByDistance("Bole", "Piazza", [withNull, withZero], BOLE, PIAZZA);
+
+    expect(ranked.length).toBe(2);
   });
 });

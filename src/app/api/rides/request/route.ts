@@ -1,6 +1,6 @@
 import { authPassenger } from "@/lib/auth-passenger";
 import { db } from "@/db";
-import { driverAvailability, rideRequest } from "@/db/schema";
+import { driverAvailability, driverProfile, rideRequest } from "@/db/schema";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
@@ -58,8 +58,10 @@ export async function POST(request: Request) {
         routeStartLng: driverAvailability.routeStartLng,
         routeEndLat: driverAvailability.routeEndLat,
         routeEndLng: driverAvailability.routeEndLng,
+        serviceScore: driverProfile.serviceScore,
       })
       .from(driverAvailability)
+      .leftJoin(driverProfile, eq(driverProfile.userId, driverAvailability.userId))
       .where(eq(driverAvailability.isOnline, true))
   ).filter((d) => !busyDriverIds.has(d.userId));
 
