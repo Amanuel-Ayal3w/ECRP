@@ -474,215 +474,260 @@ flowchart LR
 
 ## 7. Database Schema
 
-### 7.1 Entity-Relationship Diagrams
+### 7.1 Entity-Relationship Overview
 
-The database schema is split into three diagrams for clarity. All tables live in the same PostgreSQL database — the split is purely for readability since GitHub's Mermaid renderer has a complexity limit on single diagrams.
+All 17 tables live in the same PostgreSQL database. The relationship diagram below shows how the tables connect to each other — arrows indicate foreign key references, and the labels describe the nature of each relationship. The detailed column definitions follow in the tables beneath.
+
+```mermaid
+graph LR
+    subgraph "Passenger"
+        PU["passenger_user"]
+        PS["passenger_session"]
+        PA["passenger_account"]
+        PV["passenger_verification"]
+    end
+
+    subgraph "Driver"
+        DU["driver_user"]
+        DS["driver_session"]
+        DA["driver_account"]
+        DV["driver_verification"]
+        DP["driver_profile"]
+        DAV["driver_availability"]
+        DD["driver_document"]
+    end
+
+    subgraph "Admin"
+        AU["admin_user"]
+        AS["admin_session"]
+        AA["admin_account"]
+    end
+
+    subgraph "Business"
+        RR["ride_request"]
+        RJ["ride_rejection"]
+        ALA["admin_alert"]
+        TE["trip_event"]
+    end
+
+    PU --> PS
+    PU --> PA
+    PU --> RR
+
+    DU --> DS
+    DU --> DA
+    DU --> DP
+    DU --> DAV
+    DU --> DD
+    DU --> RJ
+
+    AU --> AS
+    AU --> AA
+    AU --> ALA
+
+    RR --> RJ
+    RR --> TE
+    RR --> ALA
+    RR -.-> DU
+
+    style PU fill:#e3f2fd
+    style DU fill:#e8f5e9
+    style AU fill:#fff3e0
+    style RR fill:#fce4ec
+```
 
 #### Passenger Domain
 
-The passenger domain consists of four Better Auth tables (user, session, account, verification) plus the ride_request table that passengers create. Each passenger can have multiple active sessions (e.g., different devices) and multiple ride requests over time. The `passenger_account` table stores the Telegram provider linkage with the synthetic email.
+The passenger domain consists of four Better Auth tables (user, session, account, verification) plus the `ride_request` table that passengers create. Each passenger can have multiple active sessions (e.g., different devices) and multiple ride requests over time. The `passenger_account` table stores the Telegram provider linkage with the synthetic email.
 
-```mermaid
-erDiagram
-    passenger_user {
-        text id PK
-        text name
-        text email UK
-        boolean emailVerified
-        text image
-        timestamp createdAt
-        timestamp updatedAt
-    }
+**`passenger_user`** — Core identity table for passengers
 
-    passenger_session {
-        text id PK
-        timestamp expiresAt
-        text token UK
-        text ipAddress
-        text userAgent
-        text userId FK
-    }
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | text | **PK** | Unique identifier |
+| `name` | text | | Display name from Telegram |
+| `email` | text | **Unique** | Synthetic email: `tg_{telegramId}@telegram.local` |
+| `emailVerified` | boolean | | Always false (Telegram doesn't verify email) |
+| `image` | text | | Profile picture URL from Telegram |
+| `createdAt` | timestamp | | Account creation time |
+| `updatedAt` | timestamp | | Last profile update |
 
-    passenger_account {
-        text id PK
-        text accountId
-        text providerId
-        text userId FK
-        text accessToken
-        text password
-    }
+**`passenger_session`** — Active login sessions
 
-    passenger_verification {
-        text id PK
-        text identifier
-        text value
-        timestamp expiresAt
-    }
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | text | **PK** | Session identifier |
+| `expiresAt` | timestamp | | Session expiration (7-day TTL) |
+| `token` | text | **Unique** | Signed session token |
+| `ipAddress` | text | | Client IP at login |
+| `userAgent` | text | | Browser user agent string |
+| `userId` | text | **FK → passenger_user** | Owning user |
+| `createdAt` | timestamp | | Session creation time |
+| `updatedAt` | timestamp | | Last refresh time |
 
-    ride_request {
-        text id PK
-        text passengerId FK
-        text pickup
-        text destination
-        text status
-        text matchedDriverId FK
-        timestamp acceptedAt
-        timestamp startedAt
-        timestamp endedAt
-        real currentLat
-        real currentLng
-    }
+**`passenger_account`** — Auth provider linkages
 
-    passenger_user ||--o{ passenger_session : "has sessions"
-    passenger_user ||--o{ passenger_account : "has accounts"
-    passenger_user ||--o{ ride_request : "creates rides"
-```
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | text | **PK** | Account record identifier |
+| `accountId` | text | | Telegram user ID |
+| `providerId` | text | | `telegram` or `credential` |
+| `userId` | text | **FK → passenger_user** | Linked user |
+| `accessToken` | text | | OAuth access token (if applicable) |
+| `refreshToken` | text | | OAuth refresh token (if applicable) |
+| `password` | text | | Hashed password (credential provider only) |
+| `createdAt` | timestamp | | Record creation time |
+| `updatedAt` | timestamp | | Last update |
+
+**`passenger_verification`** — Email verification tokens
+
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | text | **PK** | Token identifier |
+| `identifier` | text | | Email being verified |
+| `value` | text | | Verification token value |
+| `expiresAt` | timestamp | | Token expiration |
+
+**`ride_request`** — Ride lifecycle records
+
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | text | **PK** | Ride identifier |
+| `passengerId` | text | **FK → passenger_user** | Requesting passenger |
+| `pickup` | text | | Pickup location name |
+| `destination` | text | | Destination location name |
+| `status` | text | | State machine status: `requested`, `matched`, `accepted`, `in_progress`, `completed`, `cancelled` |
+| `matchedDriverId` | text | **FK → driver_user** | Assigned driver (null until matched) |
+| `acceptedAt` | timestamp | | When driver accepted |
+| `startedAt` | timestamp | | When trip started |
+| `endedAt` | timestamp | | When trip ended |
+| `currentLat` | real | | Latest GPS latitude (updated during trip) |
+| `currentLng` | real | | Latest GPS longitude (updated during trip) |
+| `createdAt` | timestamp | | Request creation time |
+| `updatedAt` | timestamp | | Last status change |
 
 #### Driver Domain
 
 The driver domain is the most extensive. Beyond the standard auth tables, drivers have a `driver_profile` (vehicle info and reputation scores), a `driver_availability` record (online status and declared route coordinates), and a `driver_document` collection (uploaded verification documents). The `ride_rejection` table tracks which rides a driver has declined, preventing the system from re-matching the same driver.
 
-```mermaid
-erDiagram
-    driver_user {
-        text id PK
-        text name
-        text email UK
-        boolean emailVerified
-        text image
-        timestamp createdAt
-        timestamp updatedAt
-    }
+**`driver_user`** — Core identity table for drivers (same structure as passenger_user)
 
-    driver_session {
-        text id PK
-        timestamp expiresAt
-        text token UK
-        text userId FK
-    }
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | text | **PK** | Unique identifier |
+| `name` | text | | Display name from Telegram |
+| `email` | text | **Unique** | Synthetic email: `tg_{telegramId}@telegram.local` |
+| `emailVerified` | boolean | | Always false |
+| `image` | text | | Profile picture URL from Telegram |
+| `createdAt` | timestamp | | Account creation time |
+| `updatedAt` | timestamp | | Last profile update |
 
-    driver_account {
-        text id PK
-        text accountId
-        text providerId
-        text userId FK
-        text accessToken
-        text password
-    }
+**`driver_session`** / **`driver_account`** / **`driver_verification`** — Same structure as passenger equivalents (see above).
 
-    driver_verification {
-        text id PK
-        text identifier
-        text value
-        timestamp expiresAt
-    }
+**`driver_profile`** — Vehicle info and reputation data
 
-    driver_profile {
-        text userId PK
-        text plateNumber UK
-        text vehicleModel
-        integer capacity
-        text licenseNumber
-        integer serviceScore
-        integer tripsCompleted
-        timestamp updatedAt
-    }
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `userId` | text | **PK, FK → driver_user** | One profile per driver |
+| `plateNumber` | text | **Unique** | Vehicle license plate |
+| `vehicleModel` | text | | Vehicle make/model |
+| `capacity` | integer | | Available passenger seats |
+| `licenseNumber` | text | | Driver's license number |
+| `serviceScore` | integer | | Accumulated reputation points (+10 per trip) |
+| `tripsCompleted` | integer | | Total verified trip count |
+| `updatedAt` | timestamp | | Last profile update |
 
-    driver_availability {
-        text userId PK
-        boolean isOnline
-        text routeStart
-        text routeEnd
-        real routeStartLat
-        real routeStartLng
-        real routeEndLat
-        real routeEndLng
-    }
+**`driver_availability`** — Online status and declared route
 
-    driver_document {
-        text id PK
-        text userId FK
-        text docType
-        text originalName
-        text filePath
-        text status
-        timestamp uploadedAt
-    }
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `userId` | text | **PK, FK → driver_user** | One availability record per driver |
+| `isOnline` | boolean | | Whether driver is accepting rides |
+| `routeStart` | text | | Route start location name |
+| `routeEnd` | text | | Route end location name |
+| `routeStartLat` | real | | Route start latitude |
+| `routeStartLng` | real | | Route start longitude |
+| `routeEndLat` | real | | Route end latitude |
+| `routeEndLng` | real | | Route end longitude |
+| `updatedAt` | timestamp | | Last availability update |
 
-    ride_rejection {
-        text id PK
-        text rideId FK
-        text driverId FK
-        timestamp createdAt
-    }
+**`driver_document`** — Uploaded verification documents
 
-    driver_user ||--o{ driver_session : "has sessions"
-    driver_user ||--o{ driver_account : "has accounts"
-    driver_user ||--|| driver_profile : "has profile"
-    driver_user ||--|| driver_availability : "has availability"
-    driver_user ||--o{ driver_document : "uploads documents"
-    driver_user ||--o{ ride_rejection : "rejects rides"
-```
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | text | **PK** | Document record identifier |
+| `userId` | text | **FK → driver_user** | Uploading driver |
+| `docType` | text | | Document category (license, insurance, etc.) |
+| `originalName` | text | | Original filename |
+| `filePath` | text | | Server storage path |
+| `mimeType` | text | | File MIME type |
+| `fileSize` | bigint | | File size in bytes |
+| `status` | text | | Review status: `pending`, `approved`, `rejected` |
+| `uploadedAt` | timestamp | | Upload time |
+| `reviewedByAdminId` | text | **FK → admin_user** | Reviewing admin |
+| `reviewedByAdminName` | text | | Admin display name (denormalized) |
+| `reviewedAt` | timestamp | | Review time |
+
+**`ride_rejection`** — Driver ride rejection records
+
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | text | **PK** | Rejection record identifier |
+| `rideId` | text | **FK → ride_request** | Rejected ride |
+| `driverId` | text | **FK → driver_user** | Rejecting driver |
+| `createdAt` | timestamp | | Rejection time |
 
 #### Admin Domain and Shared Tables
 
 The admin domain includes auth tables with an extra `role` column on `admin_user` (either `admin` or `super_admin`). The `admin_alert` table stores panic button alerts triggered by passengers or drivers — admins resolve these from the dashboard. The `trip_event` table is an append-only audit log recording every state transition in a ride's lifecycle, including who performed the action and any metadata (JSON).
 
-```mermaid
-erDiagram
-    admin_user {
-        text id PK
-        text name
-        text email UK
-        text role
-        timestamp createdAt
-        timestamp updatedAt
-    }
+**`admin_user`** — Admin identity with role distinction
 
-    admin_session {
-        text id PK
-        timestamp expiresAt
-        text token UK
-        text userId FK
-    }
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | text | **PK** | Unique identifier |
+| `name` | text | | Admin display name |
+| `email` | text | **Unique** | Admin email address |
+| `emailVerified` | boolean | | Email verification status |
+| `image` | text | | Profile picture URL |
+| `role` | text | | `admin` or `super_admin` |
+| `createdAt` | timestamp | | Account creation time |
+| `updatedAt` | timestamp | | Last update |
 
-    admin_account {
-        text id PK
-        text accountId
-        text providerId
-        text userId FK
-        text password
-    }
+**`admin_session`** / **`admin_account`** / **`admin_verification`** — Same structure as passenger equivalents (see Passenger Domain above).
 
-    admin_alert {
-        text id PK
-        text tripId FK
-        text userName
-        text senderRole
-        text severity
-        boolean resolved
-        text resolvedBy FK
-        timestamp resolvedAt
-    }
+**`admin_alert`** — Emergency panic button alerts
 
-    trip_event {
-        text id PK
-        text rideId FK
-        text actorId
-        text actorRole
-        text event
-        text metadata
-        timestamp createdAt
-    }
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | text | **PK** | Alert identifier |
+| `tripId` | text | **FK → ride_request** | Associated trip |
+| `userName` | text | | Sender's display name |
+| `senderRole` | text | | `passenger` or `driver` |
+| `location` | text | | Text description of location |
+| `coordinates` | text | | Raw GPS coordinates string |
+| `severity` | text | | `low`, `medium`, or `high` |
+| `resolved` | boolean | | Whether admin has resolved this |
+| `resolvedBy` | text | **FK → admin_user** | Resolving admin |
+| `resolvedAt` | timestamp | | Resolution time |
+| `createdAt` | timestamp | | Alert creation time |
+| `updatedAt` | timestamp | | Last update |
 
-    admin_user ||--o{ admin_session : "has sessions"
-    admin_user ||--o{ admin_account : "has accounts"
-    admin_user ||--o{ admin_alert : "resolves alerts"
-```
+**`trip_event`** — Immutable audit log for ride state transitions
+
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | text | **PK** | Event identifier |
+| `rideId` | text | **FK → ride_request** | Associated ride |
+| `actorId` | text | | User who triggered the event |
+| `actorRole` | text | | `passenger`, `driver`, or `system` |
+| `event` | text | | Transition name: `match`, `accept`, `reject`, `start`, `complete`, `cancel` |
+| `metadata` | text | | JSON string with context (previous status, scores, timestamps) |
+| `createdAt` | timestamp | | Event time |
 
 #### Cross-Domain Relationships
 
-The following table summarizes the foreign key relationships that span across the domain boundaries shown above:
+The following table summarizes the foreign key relationships that span across the domain boundaries shown in the relationship diagram above:
 
 | From Table | Column | References | Relationship |
 |---|---|---|---|
