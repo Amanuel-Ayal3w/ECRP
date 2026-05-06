@@ -55,7 +55,11 @@
 
 ## 1. Architecture Overview
 
-ECRP is built as a **Next.js 16 full-stack monolith** using the App Router pattern. The single deployable unit handles:
+ECRP is built as a **Next.js 16 full-stack monolith** using the App Router pattern. Unlike a traditional microservices architecture, the entire application — frontend, API, authentication, and business logic — is deployed as a single unit. This dramatically simplifies deployment, debugging, and development at the cost of horizontal scaling (which is acceptable for a community platform).
+
+The diagram below shows how data flows between the browser, the Next.js server, and external services. The browser communicates with the server over HTTP for API calls, while Pusher provides a separate WebSocket channel for real-time events (GPS updates, trip status changes). All external API keys (Gebeta Maps, LocationIQ) are kept server-side and proxied through API routes so they never reach the browser.
+
+The single deployable unit handles:
 
 - Server-rendered React UI (Server Components first)
 - RESTful API routes for all business logic
@@ -208,6 +212,8 @@ src/
 
 ECRP uses **three independent Better Auth instances** that share a single PostgreSQL database but maintain completely separate user tables, session tables, and cookie namespaces. This provides hard role separation — a user cannot accidentally escalate from passenger to admin.
 
+The diagram below shows this architecture: each Better Auth instance has its own base path, cookie prefix, and dedicated set of four database tables. Even though all tables live in the same PostgreSQL database, they are completely independent — a passenger session cookie cannot be used to access driver endpoints, and vice versa.
+
 ```mermaid
 graph LR
     subgraph "Better Auth Instances"
@@ -245,22 +251,24 @@ Each auth instance uses:
 
 ### 4.2 Telegram OAuth Flow
 
-Passengers and drivers authenticate exclusively via the Telegram Login Widget. The flow uses **synthetic emails** (`tg_{telegramId}@telegram.local`) since Telegram doesn't provide email addresses.
+Passengers and drivers authenticate exclusively via the **Telegram Login Widget**. Since Telegram doesn't expose user email addresses, the system generates **synthetic emails** in the format `tg_{telegramId}@telegram.local` to satisfy Better Auth's email-based user model. This means no real email verification is performed — identity is established entirely through Telegram's cryptographic hash.
+
+The diagram below traces a complete login from widget click to authenticated redirect. The callback endpoint (`/api/telegram/callback`) acts as a bridge: it verifies Telegram's HMAC signature, upserts the user record, creates a session, and sets the appropriate role-specific cookie before redirecting to the dashboard.
 
 ```mermaid
 sequenceDiagram
-    participant U as User (Browser)
+    participant U as User Browser
     participant TG as Telegram Widget
-    participant CB as /api/telegram/callback
+    participant CB as Callback Endpoint
     participant DB as PostgreSQL
 
-    U->>TG: Click "Login with Telegram"
+    U->>TG: Click Login with Telegram
     TG->>TG: User authorizes bot
-    TG->>CB: GET /api/telegram/callback?id=...&hash=...&role=driver
+    TG->>CB: GET /api/telegram/callback with id, hash, role
 
-    CB->>CB: Verify HMAC-SHA256 hash<br/>using TELEGRAM_BOT_TOKEN
-    CB->>CB: Check auth_date < 24h
-    CB->>CB: Generate synthetic email:<br/>tg_{id}@telegram.local
+    CB->>CB: Verify HMAC-SHA256 hash
+    CB->>CB: Reject if auth_date older than 24h
+    CB->>CB: Build synthetic email tg_ID@telegram.local
 
     alt User exists
         CB->>DB: UPDATE name, image
@@ -268,24 +276,31 @@ sequenceDiagram
         CB->>DB: INSERT user + account
     end
 
-    CB->>DB: INSERT session (7-day TTL)
-    CB->>CB: Sign session token with<br/>HMAC-SHA256(BETTER_AUTH_SECRET)
-    CB-->>U: Set-Cookie: ba-{role}.session_token<br/>302 Redirect → /{role}
+    CB->>DB: INSERT session with 7-day TTL
+    CB->>CB: Sign token with HMAC-SHA256
+    CB-->>U: Set-Cookie and 302 Redirect
 ```
 
-**Telegram Hash Verification:**
+**How Telegram Hash Verification works in detail:**
 
-1. Extract all query params except `hash`
-2. Sort keys alphabetically, join as `key=value\n`
-3. Compute `HMAC-SHA256(SHA256(botToken), dataCheckString)`
-4. Compare with the provided `hash` parameter
+The callback must confirm that the query parameters genuinely came from Telegram and haven't been tampered with. The verification algorithm works as follows:
 
-**Cookie Security:**
-- `HttpOnly: true` — no JavaScript access
-- `Secure: true` when `BETTER_AUTH_URL` starts with `https://`
-- `SameSite: lax` — CSRF protection
-- `__Secure-` prefix added automatically for HTTPS deployments
-- Session token is signed: `{token}.{base64(HMAC-SHA256(token, secret))}`
+1. **Extract** all query parameters except `hash` from the callback URL
+2. **Sort** the remaining keys alphabetically and join them as `key=value\n` (newline-separated)
+3. **Compute** `HMAC-SHA256(SHA256(botToken), dataCheckString)` — the bot token is first hashed with SHA-256 to derive the signing key, then HMAC-SHA256 produces the verification hash
+4. **Compare** the computed hash with the provided `hash` parameter — if they match, the data is authentic
+
+This two-layer hashing (SHA-256 of the bot token as the HMAC key) is Telegram's standard verification protocol. The `auth_date` field is also checked to reject stale callbacks older than 24 hours.
+
+**Cookie Security (applied to all roles):**
+
+After successful authentication, the session cookie is configured with defense-in-depth settings:
+
+- `HttpOnly: true` — prevents JavaScript access, mitigating XSS token theft
+- `Secure: true` — only sent over HTTPS (when `BETTER_AUTH_URL` starts with `https://`)
+- `SameSite: lax` — provides CSRF protection while allowing top-level navigation
+- `__Secure-` prefix — automatically added for HTTPS deployments, providing an additional browser-enforced security layer
+- **Signed tokens** — the session token format is `{token}.{base64(HMAC-SHA256(token, secret))}`, where the signature prevents forgery even if the token value is leaked
 
 ### 4.3 Admin Email/Password Auth
 
@@ -312,6 +327,8 @@ The seed script:
 | `super_admin` | All admin permissions + create/manage other admins |
 
 ### 4.4 Session Management
+
+Every authenticated request goes through the session validation pipeline shown below. The system performs a two-phase check: first it verifies the cookie's cryptographic signature (fast, no DB hit), then it queries the session table to check expiration and potentially refresh the session. This means forged cookies are rejected immediately without touching the database.
 
 ```mermaid
 graph TD
@@ -353,7 +370,9 @@ Pre-bound hooks for React components:
 
 ## 5. Middleware & Route Protection (RBAC)
 
-The middleware layer (`src/proxy.ts`) provides **Role-Based Access Control (RBAC)** and is the central gatekeeper for all requests.
+The middleware layer (`src/proxy.ts`) provides **Role-Based Access Control (RBAC)** and is the central gatekeeper for all requests. Every request — whether it's an API call or a page navigation — passes through this middleware before reaching the handler.
+
+The flowchart below shows the complete decision tree. API requests (`/api/*`) are rate-limited first and then passed through. Page requests are checked against a role mapping: each URL pattern requires a specific role (passenger, driver, either, or admin), and the middleware validates the appropriate session cookie before allowing access. If no valid session is found, the user is redirected to the login page.
 
 ```mermaid
 flowchart TD
@@ -410,6 +429,8 @@ Every response includes an `x-request-id` header (from the request's `x-request-
 
 ECRP implements **in-memory, per-IP rate limiting** in the middleware layer. Limits are enforced per API route pattern using a sliding-window token bucket.
 
+The flowchart below shows how each API request is evaluated: the client IP is extracted from proxy headers, the request path is normalized (dynamic segments like UUIDs replaced with `[id]`), and the resulting key is checked against the in-memory bucket store. If the bucket is full, a 429 response is returned with a `Retry-After` header telling the client when to retry.
+
 ```mermaid
 flowchart LR
     REQ["API Request"] --> EXTRACT["Extract client IP<br/>(x-forwarded-for / x-real-ip)"]
@@ -453,7 +474,13 @@ flowchart LR
 
 ## 7. Database Schema
 
-### 7.1 Entity-Relationship Diagram
+### 7.1 Entity-Relationship Diagrams
+
+The database schema is split into three diagrams for clarity. All tables live in the same PostgreSQL database — the split is purely for readability since GitHub's Mermaid renderer has a complexity limit on single diagrams.
+
+#### Passenger Domain
+
+The passenger domain consists of four Better Auth tables (user, session, account, verification) plus the ride_request table that passengers create. Each passenger can have multiple active sessions (e.g., different devices) and multiple ride requests over time. The `passenger_account` table stores the Telegram provider linkage with the synthetic email.
 
 ```mermaid
 erDiagram
@@ -474,8 +501,6 @@ erDiagram
         text ipAddress
         text userAgent
         text userId FK
-        timestamp createdAt
-        timestamp updatedAt
     }
 
     passenger_account {
@@ -484,113 +509,10 @@ erDiagram
         text providerId
         text userId FK
         text accessToken
-        text refreshToken
         text password
-        timestamp createdAt
-        timestamp updatedAt
     }
 
     passenger_verification {
-        text id PK
-        text identifier
-        text value
-        timestamp expiresAt
-    }
-
-    driver_user {
-        text id PK
-        text name
-        text email UK
-        boolean emailVerified
-        text image
-        timestamp createdAt
-        timestamp updatedAt
-    }
-
-    driver_session {
-        text id PK
-        timestamp expiresAt
-        text token UK
-        text ipAddress
-        text userAgent
-        text userId FK
-        timestamp createdAt
-        timestamp updatedAt
-    }
-
-    driver_account {
-        text id PK
-        text accountId
-        text providerId
-        text userId FK
-        text accessToken
-        text refreshToken
-        text password
-        timestamp createdAt
-        timestamp updatedAt
-    }
-
-    driver_verification {
-        text id PK
-        text identifier
-        text value
-        timestamp expiresAt
-    }
-
-    driver_profile {
-        text userId PK_FK
-        text plateNumber UK
-        text vehicleModel
-        integer capacity
-        text licenseNumber
-        integer serviceScore
-        integer tripsCompleted
-        timestamp updatedAt
-    }
-
-    driver_availability {
-        text userId PK_FK
-        boolean isOnline
-        text routeStart
-        text routeEnd
-        real routeStartLat
-        real routeStartLng
-        real routeEndLat
-        real routeEndLng
-        timestamp updatedAt
-    }
-
-    admin_user {
-        text id PK
-        text name
-        text email UK
-        boolean emailVerified
-        text image
-        text role
-        timestamp createdAt
-        timestamp updatedAt
-    }
-
-    admin_session {
-        text id PK
-        timestamp expiresAt
-        text token UK
-        text userId FK
-        timestamp createdAt
-        timestamp updatedAt
-    }
-
-    admin_account {
-        text id PK
-        text accountId
-        text providerId
-        text userId FK
-        text password
-        timestamp createdAt
-        timestamp updatedAt
-    }
-
-    admin_verification {
         text id PK
         text identifier
         text value
@@ -609,8 +531,82 @@ erDiagram
         timestamp endedAt
         real currentLat
         real currentLng
+    }
+
+    passenger_user ||--o{ passenger_session : "has sessions"
+    passenger_user ||--o{ passenger_account : "has accounts"
+    passenger_user ||--o{ ride_request : "creates rides"
+```
+
+#### Driver Domain
+
+The driver domain is the most extensive. Beyond the standard auth tables, drivers have a `driver_profile` (vehicle info and reputation scores), a `driver_availability` record (online status and declared route coordinates), and a `driver_document` collection (uploaded verification documents). The `ride_rejection` table tracks which rides a driver has declined, preventing the system from re-matching the same driver.
+
+```mermaid
+erDiagram
+    driver_user {
+        text id PK
+        text name
+        text email UK
+        boolean emailVerified
+        text image
         timestamp createdAt
         timestamp updatedAt
+    }
+
+    driver_session {
+        text id PK
+        timestamp expiresAt
+        text token UK
+        text userId FK
+    }
+
+    driver_account {
+        text id PK
+        text accountId
+        text providerId
+        text userId FK
+        text accessToken
+        text password
+    }
+
+    driver_verification {
+        text id PK
+        text identifier
+        text value
+        timestamp expiresAt
+    }
+
+    driver_profile {
+        text userId PK
+        text plateNumber UK
+        text vehicleModel
+        integer capacity
+        text licenseNumber
+        integer serviceScore
+        integer tripsCompleted
+        timestamp updatedAt
+    }
+
+    driver_availability {
+        text userId PK
+        boolean isOnline
+        text routeStart
+        text routeEnd
+        real routeStartLat
+        real routeStartLng
+        real routeEndLat
+        real routeEndLng
+    }
+
+    driver_document {
+        text id PK
+        text userId FK
+        text docType
+        text originalName
+        text filePath
+        text status
+        timestamp uploadedAt
     }
 
     ride_rejection {
@@ -620,34 +616,53 @@ erDiagram
         timestamp createdAt
     }
 
+    driver_user ||--o{ driver_session : "has sessions"
+    driver_user ||--o{ driver_account : "has accounts"
+    driver_user ||--|| driver_profile : "has profile"
+    driver_user ||--|| driver_availability : "has availability"
+    driver_user ||--o{ driver_document : "uploads documents"
+    driver_user ||--o{ ride_rejection : "rejects rides"
+```
+
+#### Admin Domain and Shared Tables
+
+The admin domain includes auth tables with an extra `role` column on `admin_user` (either `admin` or `super_admin`). The `admin_alert` table stores panic button alerts triggered by passengers or drivers — admins resolve these from the dashboard. The `trip_event` table is an append-only audit log recording every state transition in a ride's lifecycle, including who performed the action and any metadata (JSON).
+
+```mermaid
+erDiagram
+    admin_user {
+        text id PK
+        text name
+        text email UK
+        text role
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    admin_session {
+        text id PK
+        timestamp expiresAt
+        text token UK
+        text userId FK
+    }
+
+    admin_account {
+        text id PK
+        text accountId
+        text providerId
+        text userId FK
+        text password
+    }
+
     admin_alert {
         text id PK
         text tripId FK
         text userName
         text senderRole
-        text location
-        text coordinates
         text severity
         boolean resolved
         text resolvedBy FK
         timestamp resolvedAt
-        timestamp createdAt
-        timestamp updatedAt
-    }
-
-    driver_document {
-        text id PK
-        text userId FK
-        text docType
-        text originalName
-        text filePath
-        text mimeType
-        bigint fileSize
-        text status
-        timestamp uploadedAt
-        text reviewedByAdminId FK
-        text reviewedByAdminName
-        timestamp reviewedAt
     }
 
     trip_event {
@@ -660,26 +675,25 @@ erDiagram
         timestamp createdAt
     }
 
-    passenger_user ||--o{ passenger_session : "has sessions"
-    passenger_user ||--o{ passenger_account : "has accounts"
-    passenger_user ||--o{ ride_request : "creates rides"
-
-    driver_user ||--o{ driver_session : "has sessions"
-    driver_user ||--o{ driver_account : "has accounts"
-    driver_user ||--|| driver_profile : "has profile"
-    driver_user ||--|| driver_availability : "has availability"
-    driver_user ||--o{ driver_document : "uploads documents"
-    driver_user ||--o{ ride_rejection : "rejects rides"
-
     admin_user ||--o{ admin_session : "has sessions"
     admin_user ||--o{ admin_account : "has accounts"
     admin_user ||--o{ admin_alert : "resolves alerts"
-
-    ride_request ||--o{ ride_rejection : "has rejections"
-    ride_request ||--o{ trip_event : "has events"
-    ride_request ||--o| admin_alert : "triggers alerts"
-    ride_request }o--o| driver_user : "matched to driver"
 ```
+
+#### Cross-Domain Relationships
+
+The following table summarizes the foreign key relationships that span across the domain boundaries shown above:
+
+| From Table | Column | References | Relationship |
+|---|---|---|---|
+| `ride_request` | `passengerId` | `passenger_user.id` | Each ride belongs to one passenger |
+| `ride_request` | `matchedDriverId` | `driver_user.id` | Assigned driver (nullable until matched) |
+| `ride_rejection` | `rideId` | `ride_request.id` | Tracks which ride was rejected |
+| `ride_rejection` | `driverId` | `driver_user.id` | Which driver rejected it |
+| `admin_alert` | `tripId` | `ride_request.id` | Panic alert linked to a trip |
+| `admin_alert` | `resolvedBy` | `admin_user.id` | Which admin resolved it |
+| `trip_event` | `rideId` | `ride_request.id` | Audit log entries for a ride |
+| `driver_document` | `reviewedByAdminId` | `admin_user.id` | Admin who reviewed the document |
 
 ### 7.2 Table Reference
 
@@ -733,40 +747,44 @@ npm run db:studio     # Open Drizzle Studio GUI
 
 ### 8.1 Matching Flow
 
+When a passenger submits a ride request, the server orchestrates a multi-step pipeline: it identifies available drivers, computes road distances via the Gebeta Matrix API, filters by proximity, ranks candidates, and persists the result. The diagram below shows this end-to-end flow. If coordinates are not provided in the request body, the server geocodes the place names first using LocationIQ (with Gebeta as fallback).
+
 ```mermaid
 sequenceDiagram
     participant P as Passenger
-    participant API as /api/rides/request
+    participant API as Ride Request API
     participant DB as PostgreSQL
-    participant GEO as LocationIQ / Gebeta
+    participant GEO as LocationIQ or Gebeta
     participant MATRIX as Gebeta Matrix API
 
-    P->>API: POST { pickup, destination,<br/>pickupLat?, pickupLng?,<br/>destLat?, destLng? }
-    API->>API: Validate session (passenger)
+    P->>API: POST pickup, destination, optional coords
+    API->>API: Validate passenger session
 
-    API->>DB: Query busy drivers<br/>(status IN matched, accepted, in_progress)
-    API->>DB: Query online drivers<br/>(isOnline = true)
+    API->>DB: Query busy drivers (active trips)
+    API->>DB: Query online drivers
     API->>API: Filter out busy drivers
 
     alt Coordinates not provided
-        API->>GEO: Geocode pickup → {lat, lng}
-        API->>GEO: Geocode destination → {lat, lng}
+        API->>GEO: Geocode pickup to lat lng
+        API->>GEO: Geocode destination to lat lng
     end
 
-    API->>MATRIX: Matrix distances:<br/>pickup → all driver route starts
-    API->>MATRIX: Matrix distances:<br/>destination → all driver route ends
+    API->>MATRIX: Distances from pickup to driver route starts
+    API->>MATRIX: Distances from destination to driver route ends
 
-    API->>API: Filter: both distances ≤ 1km
-    API->>API: Sort by combined distance (ascending)
+    API->>API: Filter both distances within 1km
+    API->>API: Sort by combined distance ascending
 
-    API->>DB: INSERT ride_request<br/>(status: matched or requested)
-    API->>DB: INSERT trip_event (audit log)
-    API-->>P: { ride, matched: true/false }
+    API->>DB: INSERT ride_request
+    API->>DB: INSERT trip_event audit log
+    API-->>P: Return ride and match status
 ```
 
 ### 8.2 Proximity Filtering & Scoring
 
-The matching algorithm in `src/lib/score-route.ts` evaluates each online driver's declared route against the passenger's request:
+The matching algorithm in `src/lib/score-route.ts` evaluates each online driver's declared route against the passenger's request. The key insight is that ECRP matches based on **route alignment**, not just raw proximity — a driver 500m away but heading in the opposite direction is not a good match, while a driver 800m away heading the same direction is ideal.
+
+The flowchart below shows the complete pipeline. First, busy and coordinate-less drivers are filtered out. Then, the Gebeta Matrix API computes road distances (not straight-line) from the passenger's pickup to each driver's route start, and from the passenger's destination to each driver's route end. If the Matrix API fails for any pair, the system falls back to Haversine (great-circle) distance. Finally, only drivers within 1km on **both** ends are kept, and they're ranked by combined distance (pickup gap + destination gap).
 
 ```mermaid
 flowchart TD
@@ -830,7 +848,9 @@ distance = R × 2 × arcsin(√a)
 
 ### 9.1 State Diagram
 
-The trip lifecycle is enforced by a typed state machine in `src/lib/state-machine.ts`:
+Every ride in ECRP follows a strict lifecycle enforced by a typed state machine in `src/lib/state-machine.ts`. The state machine prevents illegal transitions — for example, a ride cannot jump from `requested` directly to `completed` without going through `accepted` first. Any API endpoint that changes ride status calls `assertTransition()`, which throws a `400 INVALID_TRANSITION` error if the transition is not allowed.
+
+The diagram below shows all six states and the events that trigger transitions between them. Notice that `completed` and `cancelled` are **terminal states** — once a ride reaches either, no further transitions are possible. Also note that `reject` returns a ride from `matched` back to `requested`, effectively putting it back into the matching pool for other drivers.
 
 ```mermaid
 stateDiagram-v2
@@ -881,23 +901,25 @@ Invalid transitions return a `400 INVALID_TRANSITION` error with the reason stri
 
 ### 9.3 Audit Logging
 
-Every state transition is recorded in the `trip_event` table:
+Every state transition is recorded in the `trip_event` table, creating a tamper-evident history of the entire ride lifecycle. Two functions work in parallel: `writeTripEvent()` persists the record to the database, while `emitTripEvent()` broadcasts a real-time notification to connected clients via Pusher.
 
 ```mermaid
 flowchart LR
-    TRANSITION["State Transition<br/>(e.g., accept, start, complete)"] --> WRITE["writeTripEvent()"]
+    TRANSITION["State Transition"] --> WRITE["writeTripEvent()"]
     WRITE --> DB[("trip_event table")]
-    WRITE --> DETAILS["Records:<br/>• rideId<br/>• actorId<br/>• actorRole (passenger|driver|system)<br/>• event name<br/>• metadata (JSON)"]
 
     TRANSITION --> EMIT["emitTripEvent()"]
-    EMIT --> PUSHER["Pusher trigger<br/>private-trip.{rideId}"]
+    EMIT --> PUSHER["Pusher trigger on private channel"]
 ```
 
-The `trip_event` table captures:
-- **Who** performed the action (`actorId`, `actorRole`)
-- **What** happened (`event`: match, accept, reject, start, complete, cancel)
-- **When** it happened (`createdAt`)
-- **Context** (`metadata`: JSON with previous status, timestamps, scores, etc.)
+Each `trip_event` record captures the full context of what happened:
+
+- **Who** performed the action — `actorId` (user ID) and `actorRole` (`passenger`, `driver`, or `system`)
+- **What** happened — `event` field contains the transition name: `match`, `accept`, `reject`, `start`, `complete`, or `cancel`
+- **When** it happened — `createdAt` timestamp
+- **Context** — `metadata` field stores a JSON string with additional details such as the previous status, timestamps, and any score bonuses applied
+
+This audit trail is immutable (append-only) and can be used for dispute resolution, analytics, and compliance reporting. The Pusher channel used is `private-trip.<rideId>`, ensuring only trip participants receive the real-time updates.
 
 ---
 
@@ -905,7 +927,9 @@ The `trip_event` table captures:
 
 ### 10.1 Architecture
 
-ECRP uses **Pusher** as a managed WebSocket service to deliver real-time events between trip participants.
+ECRP uses **Pusher** as a managed WebSocket service to deliver real-time events between trip participants. Pusher was chosen over raw WebSockets because it handles connection management, reconnection, and scaling — allowing the Next.js server to remain stateless.
+
+The diagram below shows the real-time data flow. The driver's browser reads GPS coordinates and POSTs them to the API. The API persists them and triggers a Pusher event on the trip's private channel. The passenger's browser receives this event via WebSocket and updates the map marker. The admin dashboard can also subscribe to receive panic alerts.
 
 ```mermaid
 graph TB
@@ -924,7 +948,7 @@ graph TB
     end
 
     subgraph "Pusher (Managed WebSockets)"
-        CH["Channel:<br/>private-trip.{rideId}"]
+        CH["Channel:<br/>private-trip.rideId"]
     end
 
     subgraph "Passenger Browser"
@@ -953,56 +977,68 @@ graph TB
 
 ### 10.2 Channel Authentication
 
-Pusher private channels require server-side authentication:
+Pusher private channels require **server-side authentication** to prevent unauthorized users from eavesdropping on trip events. When the Pusher client library attempts to subscribe to a private channel, it first sends an authentication request to the ECRP backend. The server verifies that the requesting user is actually a participant in the trip before signing the channel subscription.
 
 ```mermaid
 sequenceDiagram
-    participant Client as Browser (pusher-js)
+    participant Client as Browser pusher-js
     participant Auth as /api/realtime/auth
     participant DB as PostgreSQL
 
-    Client->>Auth: POST socket_id=...&channel_name=private-trip.{rideId}
+    Client->>Auth: POST socket_id and channel_name
     Auth->>Auth: Verify passenger OR driver session
     Auth->>DB: Lookup ride_request by rideId
-    Auth->>Auth: Check user is participant<br/>(passengerId or matchedDriverId)
-    Auth->>Auth: HMAC-SHA256(secret, "socketId:channelName")
-    Auth-->>Client: { auth: "appKey:signature" }
+    Auth->>Auth: Confirm user is trip participant
+    Auth->>Auth: Compute HMAC-SHA256 signature
+    Auth-->>Client: Return auth signature
 ```
 
+**How it works in detail:**
+
+1. The Pusher client extracts the `rideId` from the channel name (`private-trip.<rideId>`)
+2. The server checks if the authenticated user is either the `passengerId` or the `matchedDriverId` on that ride
+3. If authorized, the server computes `HMAC-SHA256(appSecret, "socketId:channelName")` and returns the signature
+4. The Pusher client presents this signature to the Pusher service to complete the subscription
+
 **Key Details:**
-- Channel format: `private-trip.{rideId}` (dot-separated, not hyphen)
+- Channel format: `private-trip.<rideId>` (dot-separated, not hyphen)
 - Only trip participants (passenger or matched driver) can subscribe
 - Auth endpoint accepts both `application/x-www-form-urlencoded` and JSON body
 - Client configures: `authEndpoint: "/api/realtime/auth"`, `authTransport: "ajax"`
 
 ### 10.3 GPS Telemetry Pipeline
 
+During an active trip (`in_progress` status), the driver's browser continuously reads GPS coordinates and posts them to the server. The server validates the data, persists the latest position to the database, and broadcasts it via Pusher so the passenger's map updates in real time. This creates a smooth, near-real-time tracking experience without requiring the passenger to poll.
+
 ```mermaid
 sequenceDiagram
     participant Driver as Driver Browser
-    participant API as /api/trips/[id]/location
+    participant API as Location API
     participant DB as PostgreSQL
     participant Pusher as Pusher
     participant Passenger as Passenger Browser
     participant Map as MapLibre GL
 
-    loop Every 5-7 seconds (throttled)
-        Driver->>Driver: navigator.geolocation.getCurrentPosition()
-        Driver->>API: POST { lat, lng }
+    loop Every 5-7 seconds throttled
+        Driver->>Driver: Read GPS position
+        Driver->>API: POST lat, lng
         API->>API: Validate driver session
         API->>API: Validate driver is assigned to trip
-        API->>API: Validate trip status = in_progress
-        API->>API: Validate lat ∈ [-90, 90], lng ∈ [-180, 180]
-        API->>DB: UPDATE ride_request<br/>SET currentLat, currentLng
-        API->>Pusher: trigger("location_update",<br/>{ lat, lng, updatedAt })
-        Pusher-->>Passenger: location_update event
+        API->>API: Validate trip is in_progress
+        API->>API: Validate coordinate ranges
+        API->>DB: UPDATE currentLat, currentLng
+        API->>Pusher: Trigger location_update event
+        Pusher-->>Passenger: location_update
         Passenger->>Map: Update driver marker position
     end
 ```
 
 **Throttling Strategy:**
-- Client-side throttle: 5–7 second intervals (configured to stay within Pusher free-tier limits)
-- Rate limit: 30 requests per 10 seconds per IP (middleware)
+
+The GPS update frequency is carefully balanced between user experience and cost:
+
+- **Client-side throttle:** 5–7 second intervals between geolocation reads. This is intentionally slower than real-time to stay within Pusher's free-tier message limits (200k messages/day). For a typical 20-minute trip, this produces ~170-240 location events — well within budget.
+- **Server-side rate limit:** 30 requests per 10 seconds per IP (enforced by middleware). This prevents a misbehaving client from overwhelming the system while still allowing normal GPS update cadence.
 
 ### 10.4 Event Types
 
@@ -1021,9 +1057,11 @@ sequenceDiagram
 
 ## 11. Geocoding & Maps
 
+ECRP needs to convert place names (like "Bole, Addis Ababa") into geographic coordinates (latitude/longitude) for mapping and distance calculations. Since no single geocoding provider is 100% reliable, the system uses a **dual-provider strategy** with automatic fallback.
+
 ### 11.1 Geocoding Pipeline
 
-ECRP uses a **dual-provider geocoding strategy** with automatic fallback:
+The flowchart below shows the geocoding decision tree. LocationIQ is preferred because it has better coverage for Ethiopian addresses and supports filtering by country code (`et`). Gebeta is used as a fallback when LocationIQ's key is not configured or when a request fails. If both providers fail, the function returns `null` and the caller must handle the missing coordinates (typically by returning a validation error to the user).
 
 ```mermaid
 flowchart TD
@@ -1058,7 +1096,7 @@ flowchart TD
 
 ### 11.2 API Proxy Routes
 
-All external map API calls are proxied through Next.js API routes to protect API keys:
+All external map API calls are proxied through Next.js API routes to protect API keys. The browser never sees the actual Gebeta or LocationIQ API keys — it only calls internal `/api/` endpoints, which add the keys server-side before forwarding to the external service. The diagram below shows the three-layer architecture: browser → Next.js proxy → external API.
 
 ```mermaid
 flowchart LR
@@ -1102,7 +1140,9 @@ flowchart LR
 
 ## 12. Service Score System
 
-The Service Score is a reputation metric earned by drivers for verified trip completions.
+The Service Score is a **non-monetary reputation metric** earned by drivers for verified trip completions. Unlike traditional ride-sharing platforms, ECRP has no payment system — the Service Score is the primary incentive for drivers to offer rides. A higher score signals reliability and community contribution.
+
+The flowchart below shows what happens atomically when a driver completes a trip. The key detail is that all database operations (ride status update, profile update, score increment) happen in a **single database transaction** — if any step fails, everything rolls back to prevent inconsistent state.
 
 ```mermaid
 flowchart TD
@@ -1138,43 +1178,53 @@ Admins can upload CSV files containing traffic authority penalty data:
 
 ## 13. Emergency Alert (Panic) System
 
+The panic button is a critical safety feature available to both passengers and drivers during an active trip. When pressed, it immediately creates a high-priority alert in the admin dashboard with the sender's current location. The system is intentionally designed to be low-friction — a single tap sends the alert without requiring confirmation dialogs.
+
+The alert lifecycle has two phases: **creation** (by the trip participant) and **resolution** (by an admin). The diagram below shows both phases.
+
 ```mermaid
 sequenceDiagram
-    participant User as Passenger/Driver
-    participant API as /api/trips/[id]/panic
+    participant User as Passenger or Driver
+    participant API as Panic API
     participant DB as PostgreSQL
-    participant Pusher as Pusher
     participant Admin as Admin Dashboard
 
-    User->>API: POST { location, coordinates, severity }
-    API->>API: Verify passenger OR driver session
+    User->>API: POST location, coordinates, severity
+    API->>API: Verify session
     API->>DB: Lookup ride_request
     API->>API: Verify user is trip participant
 
-    API->>DB: Lookup sender's name<br/>(passenger_user or driver_user)
+    API->>DB: Lookup sender name
+    API->>DB: INSERT admin_alert
 
-    API->>DB: INSERT admin_alert<br/>{tripId, userName, senderRole,<br/>location, coordinates, severity,<br/>resolved: false}
+    API-->>User: Return alertId
 
-    API-->>User: { ok: true, alertId }
+    Note over Admin: Admin views unresolved alerts
 
-    Note over Admin: Admin views unresolved alerts<br/>GET /api/admin/alerts
-
-    Admin->>API: POST /api/admin/alerts/[id]/resolve
-    API->>DB: UPDATE admin_alert<br/>resolved=true, resolvedBy, resolvedAt
+    Admin->>API: POST resolve alert
+    API->>DB: Mark resolved with admin ID
 ```
 
+**How the alert lifecycle works:**
+
+1. **Trigger:** Either the passenger or driver taps the panic button on the active trip screen. The client sends the current GPS coordinates, a text description of the location, and a severity level.
+
+2. **Server processing:** The API validates the user's session, confirms they are a participant in the trip, looks up their display name from the appropriate user table, and inserts a new `admin_alert` record with `resolved: false`.
+
+3. **Admin response:** Admins see unresolved alerts on their dashboard (sorted by severity and time). After taking action (contacting users, dispatching help), they mark the alert as resolved — recording which admin handled it and when.
+
 **Alert Properties:**
-- **Severity levels:** `low`, `medium`, `high` (defaults to `high` for panic)
-- **Sender role:** Tracked as `driver` or `passenger`
-- **Location data:** Both text description and coordinates string
-- **Resolution:** Admin marks as resolved with their user ID and timestamp
-- **Rate limited:** 3 requests per 60 seconds per IP
+- **Severity levels:** `low`, `medium`, `high` (defaults to `high` for panic button presses)
+- **Sender role:** Tracked as `driver` or `passenger` so admins know who triggered it
+- **Location data:** Both a text description and raw coordinates string are stored for maximum flexibility
+- **Resolution:** Admin marks as resolved — this records the admin's user ID and a timestamp for accountability
+- **Rate limited:** 3 requests per 60 seconds per IP — prevents accidental spam while ensuring genuine emergencies always get through
 
 ---
 
 ## 14. Admin Dashboard
 
-The admin dashboard (`/admin`) provides operational oversight of the entire platform.
+The admin dashboard (`/admin`) provides operational oversight of the entire platform. It is protected by the middleware — only users with the `admin` or `super_admin` role can access these pages. The diagram below shows the page structure and the API endpoints that power each page.
 
 ```mermaid
 graph TB
@@ -1371,6 +1421,8 @@ ECRP uses a consistent error response format across all API routes:
 | `SERVICE_UNAVAILABLE` | 503 | External service not configured |
 
 ### Error Flow
+
+The flowchart below shows the order in which checks are performed. This ordering is intentional — authentication is checked first (cheapest), then authorization, then input validation, then resource existence, then state validity, and finally the actual business logic. This means a user with an expired session gets a clear 401 rather than a confusing 404.
 
 ```mermaid
 flowchart TD
