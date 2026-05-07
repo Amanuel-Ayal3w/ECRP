@@ -4,6 +4,14 @@ const GEBETA_MATRIX_URL = "https://mapapi.gebeta.app/api/v1/route/matrix";
 const MATRIX_BATCH_SIZE = 24; // Gebeta allows up to 25 points per request (1 origin + 24 dest)
 const PROXIMITY_KM = 1; // driver route start/end must be within this distance of passenger pickup/destination
 
+/**
+ * Weight that converts one service-score point into a km-equivalent
+ * advantage when ranking drivers. A driver with 50 service-score points
+ * gets a 50 × 0.002 = 0.1 km bonus (i.e. treated as if they were 100 m
+ * closer than their actual distance).
+ */
+const SERVICE_SCORE_WEIGHT_KM = 0.002;
+
 export interface DriverCandidate {
   userId: string;
   routeStart: string | null;
@@ -12,6 +20,7 @@ export interface DriverCandidate {
   routeStartLng: number | null;
   routeEndLat: number | null;
   routeEndLng: number | null;
+  serviceScore?: number | null;
 }
 
 export interface RankedDriver extends DriverCandidate {
@@ -140,5 +149,11 @@ export async function rankDriversByDistance(
     }
   });
 
-  return eligible.sort((a, b) => (a.distanceKm + a.endDistanceKm) - (b.distanceKm + b.endDistanceKm));
+  return eligible.sort((a, b) => {
+    const distA = a.distanceKm + a.endDistanceKm;
+    const distB = b.distanceKm + b.endDistanceKm;
+    const scoreA = (a.serviceScore ?? 0) * SERVICE_SCORE_WEIGHT_KM;
+    const scoreB = (b.serviceScore ?? 0) * SERVICE_SCORE_WEIGHT_KM;
+    return (distA - scoreA) - (distB - scoreB);
+  });
 }
