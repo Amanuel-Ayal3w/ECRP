@@ -66,18 +66,23 @@ export function makeDriver() {
       isOnline: boolean;
       lat?: number;
       lng?: number;
+      endLat?: number;
+      endLng?: number;
     }) {
+      // Default end coords to start coords so rankDriversByDistance can match the driver
+      const endLat = opts.endLat ?? opts.lat ?? null;
+      const endLng = opts.endLng ?? opts.lng ?? null;
       await db
         .insert(driverAvailability)
         .values({
           userId: id,
           isOnline: opts.isOnline,
           routeStart: opts.lat != null ? "Test Start" : null,
-          routeEnd: opts.lng != null ? "Test End" : null,
+          routeEnd: endLat != null ? "Test End" : null,
           routeStartLat: opts.lat ?? null,
           routeStartLng: opts.lng ?? null,
-          routeEndLat: null,
-          routeEndLng: null,
+          routeEndLat: endLat,
+          routeEndLng: endLng,
           updatedAt: now,
         })
         .onConflictDoUpdate({
@@ -86,6 +91,8 @@ export function makeDriver() {
             isOnline: opts.isOnline,
             routeStartLat: opts.lat ?? null,
             routeStartLng: opts.lng ?? null,
+            routeEndLat: endLat,
+            routeEndLng: endLng,
             updatedAt: now,
           },
         });
@@ -106,6 +113,10 @@ export function makeRide(
     driverId?: string;
     pickup?: string;
     destination?: string;
+    pickupLat?: number;
+    pickupLng?: number;
+    destLat?: number;
+    destLng?: number;
   } = {},
 ) {
   const id = generateId();
@@ -120,6 +131,10 @@ export function makeRide(
         passengerId,
         pickup: opts.pickup ?? "Bole",
         destination: opts.destination ?? "Piassa",
+        pickupLat: opts.pickupLat ?? null,
+        pickupLng: opts.pickupLng ?? null,
+        destLat: opts.destLat ?? null,
+        destLng: opts.destLng ?? null,
         status,
         matchedDriverId: opts.driverId ?? null,
         acceptedAt:

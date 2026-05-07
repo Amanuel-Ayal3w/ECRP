@@ -8,6 +8,8 @@ import { generateId } from "@/lib/generate-id";
 import { validateTransition, type RideStatus } from "@/lib/state-machine";
 import { writeTripEvent } from "@/lib/trip-events";
 import { invalidTransition } from "@/lib/api-error";
+import { pusherServer } from "@/lib/pusher-server";
+import { rematchRide } from "@/lib/rematch";
 
 export async function POST(
   _request: Request,
@@ -46,6 +48,12 @@ export async function POST(
       .update(rideRequest)
       .set({ status: "requested", matchedDriverId: null, updatedAt: new Date() })
       .where(eq(rideRequest.id, id));
+
+    await pusherServer.trigger(`private-passenger.${ride.passengerId}`, "ride-searching", {
+      rideId: id,
+    });
+
+    await rematchRide(ride);
   }
 
   await writeTripEvent({

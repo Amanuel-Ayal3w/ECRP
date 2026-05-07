@@ -5,8 +5,10 @@ import { eq } from "drizzle-orm";
 import { makeDriver, makePassenger } from "@/test/db-helpers";
 
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
+
+const mockPusherTrigger = vi.fn(() => Promise.resolve());
 vi.mock("@/lib/pusher-server", () => ({
-  pusherServer: { trigger: vi.fn(() => Promise.resolve()) },
+  pusherServer: { trigger: mockPusherTrigger },
 }));
 
 const mockGetPassengerSession = vi.fn();
@@ -120,7 +122,7 @@ describe("POST /api/rides/request", () => {
       const req = new Request("http://localhost/api/rides/request", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pickup: "Bole", destination: "Piassa", pickupLat: 9.01, pickupLng: 38.76 }),
+        body: JSON.stringify({ pickup: "Bole", destination: "Piassa", pickupLat: 9.01, pickupLng: 38.76, destLat: 9.01, destLng: 38.76 }),
       });
       const res = await POST(req);
       expect(res.status).toBe(201);
@@ -151,5 +153,42 @@ describe("POST /api/rides/request", () => {
     } finally {
       await driver.cleanup();
     }
+  });
+
+  it("fires ride-assigned Pusher event to the matched driver's private channel", async () => {
+    const driver = makeDriver();
+    await driver.seed();
+    await driver.setAvailability({ isOnline: true, lat: 9.01, lng: 38.76 });
+
+    try {
+      const req = new Request("http://localhost/api/rides/request", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pickup: "Bole", destination: "Piassa", pickupLat: 9.01, pickupLng: 38.76, destLat: 9.01, destLng: 38.76 }),
+      });
+      await POST(req);
+
+      expect(mockPusherTrigger).toHaveBeenCalledWith(
+        `private-driver.${driver.id}`,
+        "ride-assigned",
+        expect.objectContaining({ pickup: "Bole", destination: "Piassa" }),
+      );
+    } finally {
+      await driver.cleanup();
+    }
+  });
+
+  it("does NOT fire ride-assigned when no driver is matched", async () => {
+    const req = new Request("http://localhost/api/rides/request", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pickup: "Bole", destination: "Piassa", pickupLat: 9.01, pickupLng: 38.76 }),
+    });
+    await POST(req);
+
+    const driverChannelCalls = mockPusherTrigger.mock.calls.filter(
+      ([ch]) => (ch as string).startsWith("private-driver."),
+    );
+    expect(driverChannelCalls).toHaveLength(0);
   });
 });

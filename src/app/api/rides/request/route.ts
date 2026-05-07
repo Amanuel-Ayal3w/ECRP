@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import { generateId } from "@/lib/generate-id";
 import { rankDriversByDistance } from "@/lib/score-route";
 import { writeTripEvent } from "@/lib/trip-events";
+import { pusherServer } from "@/lib/pusher-server";
 
 export async function POST(request: Request) {
   const session = await authPassenger.api.getSession({ headers: await headers() });
@@ -85,6 +86,10 @@ export async function POST(request: Request) {
     passengerId: session.user.id,
     pickup,
     destination,
+    pickupLat: pickupCoords?.lat ?? null,
+    pickupLng: pickupCoords?.lng ?? null,
+    destLat: destCoords?.lat ?? null,
+    destLng: destCoords?.lng ?? null,
     status,
     matchedDriverId: bestDriver?.userId ?? null,
     createdAt: now,
@@ -110,6 +115,14 @@ export async function POST(request: Request) {
     .where(eq(rideRequest.id, id))
     .orderBy(desc(rideRequest.createdAt))
     .limit(1);
+
+  if (bestDriver) {
+    await pusherServer.trigger(`private-driver.${bestDriver.userId}`, "ride-assigned", {
+      rideId: id,
+      pickup,
+      destination,
+    });
+  }
 
   return NextResponse.json({ ride, matched: Boolean(bestDriver) }, { status: 201 });
 }

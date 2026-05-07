@@ -5,8 +5,10 @@ import { eq } from "drizzle-orm";
 import { makeDriver, makePassenger, makeRide } from "@/test/db-helpers";
 
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
+
+const mockPusherTrigger = vi.fn(() => Promise.resolve());
 vi.mock("@/lib/pusher-server", () => ({
-  pusherServer: { trigger: vi.fn(() => Promise.resolve()) },
+  pusherServer: { trigger: mockPusherTrigger },
 }));
 
 const mockGetDriverSession = vi.fn();
@@ -107,5 +109,49 @@ describe("POST /api/rides/:id/accept", () => {
     const req = new Request("http://localhost", { method: "POST" });
     const res = await POST(req, { params: Promise.resolve({ id: completedRide.id }) });
     expect(res.status).toBe(400);
+  });
+
+  it("fires ride-accepted Pusher event to the passenger's private channel", async () => {
+    const req = new Request("http://localhost", { method: "POST" });
+    await POST(req, { params: Promise.resolve({ id: ride.id }) });
+
+    expect(mockPusherTrigger).toHaveBeenCalledWith(
+      `private-passenger.${passenger.id}`,
+      "ride-accepted",
+      expect.objectContaining({ rideId: ride.id, driverId: driver.id }),
+    );
+  });
+
+  it("only one driver wins when two accept the same unassigned ride concurrently", async () => {
+    const driverB = makeDriver();
+    await driverB.seed();
+
+    const sessionA = { user: { id: driver.id } };
+    const sessionB = { user: { id: driverB.id } };
+
+    // Alternate sessions per-call so both drivers are "logged in" simultaneously
+    let callCount = 0;
+    mockGetDriverSession.mockImplementation(() => {
+      callCount++;
+      return Promise.resolve(callCount % 2 === 1 ? sessionA : sessionB);
+    });
+
+    const [resA, resB] = await Promise.all([
+      POST(new Request("http://localhost", { method: "POST" }), { params: Promise.resolve({ id: ride.id }) }),
+      POST(new Request("http://localhost", { method: "POST" }), { params: Promise.resolve({ id: ride.id }) }),
+    ]);
+
+    const statuses = [resA.status, resB.status].sort();
+    expect(statuses[0]).toBe(200);
+    // The loser gets 409 (atomic guard) or 400 (state machine sees already-accepted status)
+    // depending on interleaving — both mean "you didn't win the race"
+    expect([400, 409]).toContain(statuses[1]);
+
+    // DB must show exactly one accepted driver
+    const [dbRide] = await db.select().from(rideRequest).where(eq(rideRequest.id, ride.id)).limit(1);
+    expect(dbRide.status).toBe("accepted");
+    expect([driver.id, driverB.id]).toContain(dbRide.matchedDriverId);
+
+    await driverB.cleanup();
   });
 });
