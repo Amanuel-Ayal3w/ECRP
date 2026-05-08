@@ -31,6 +31,7 @@ import {
   TrendingUp,
   User,
   UserCog,
+  UserMinus,
   Users,
   XCircle,
 } from "lucide-react";
@@ -274,6 +275,7 @@ export default function AdminDashboardPage() {
   const [documents, setDocuments] = useState<DocRow[]>([]);
   const [expandedAlerts, setExpandedAlerts] = useState<Set<string>>(new Set());
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
+  const [releasingTrip, setReleasingTrip] = useState<string | null>(null);
 
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [tripsLoading, setTripsLoading] = useState(true);
@@ -399,6 +401,19 @@ export default function AdminDashboardPage() {
 
     return () => window.clearInterval(timer);
   }, [active, loadOverview, loadTrips, loadUsers, loadAlerts, loadAdmins, loadDocuments]);
+
+  const releaseTrip = async (id: string) => {
+    setReleasingTrip(id);
+    try {
+      await requestJson(`/api/admin/trips/${id}/release`, { method: "POST" });
+      toast.success("Driver released. Trip cancelled.");
+      await Promise.all([loadTrips(), loadUsers(), loadOverview()]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not release driver.");
+    } finally {
+      setReleasingTrip(null);
+    }
+  };
 
   const resolveAlert = async (id: string) => {
     try {
@@ -633,6 +648,7 @@ export default function AdminDashboardPage() {
                       <th className="text-left px-5 py-3 text-xs text-muted-foreground font-medium">Route</th>
                       <th className="text-left px-5 py-3 text-xs text-muted-foreground font-medium">Progress</th>
                       <th className="text-left px-5 py-3 text-xs text-muted-foreground font-medium">Duration</th>
+                      <th className="text-left px-5 py-3 text-xs text-muted-foreground font-medium">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -653,11 +669,23 @@ export default function AdminDashboardPage() {
                         <td className="px-5 py-4 text-xs text-muted-foreground whitespace-nowrap">
                           <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{t.duration}</span>
                         </td>
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs gap-1.5 border-border"
+                            disabled={releasingTrip === t.id}
+                            onClick={() => releaseTrip(t.id)}
+                          >
+                            <UserMinus className="w-3 h-3" />
+                            {releasingTrip === t.id ? "Releasing…" : "Release"}
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                     {!tripsLoading && trips.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="px-5 py-8 text-center text-muted-foreground">No active trips.</td>
+                        <td colSpan={7} className="px-5 py-8 text-center text-muted-foreground">No active trips.</td>
                       </tr>
                     )}
                   </tbody>

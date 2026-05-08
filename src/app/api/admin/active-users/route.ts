@@ -5,6 +5,8 @@ import { inArray } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
+const STALE_TRIP_MS = 5 * 60 * 60 * 1000; // 5 hours
+
 function requireAdminRole(session: Awaited<ReturnType<typeof authAdmin.api.getSession>>) {
   const role = (session?.user as { role?: string } | undefined)?.role;
   return Boolean(session && (role === "admin" || role === "super_admin"));
@@ -26,11 +28,15 @@ export async function GET() {
       passengerId: rideRequest.passengerId,
       matchedDriverId: rideRequest.matchedDriverId,
       status: rideRequest.status,
+      createdAt: rideRequest.createdAt,
     }).from(rideRequest),
   ]);
 
-  const activeTrips = allTrips.filter((t) =>
-    ["requested", "matched", "accepted", "in_progress"].includes(t.status)
+  const cutoff = new Date(Date.now() - STALE_TRIP_MS);
+  const activeTrips = allTrips.filter(
+    (t) =>
+      ["requested", "matched", "accepted", "in_progress"].includes(t.status) &&
+      new Date(t.createdAt).getTime() > cutoff.getTime(),
   );
   const completedTrips = allTrips.filter((t) => t.status === "completed");
 

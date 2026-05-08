@@ -1,9 +1,11 @@
 import { authAdmin } from "@/lib/auth-admin";
 import { db } from "@/db";
 import { driverProfile, driverUser, passengerUser, rideRequest } from "@/db/schema";
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
+
+const STALE_TRIP_MS = 5 * 60 * 60 * 1000; // 5 hours
 
 function requireAdminRole(session: Awaited<ReturnType<typeof authAdmin.api.getSession>>) {
   const role = (session?.user as { role?: string } | undefined)?.role;
@@ -31,10 +33,17 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const cutoff = new Date(Date.now() - STALE_TRIP_MS);
+
   const activeTrips = await db
     .select()
     .from(rideRequest)
-    .where(inArray(rideRequest.status, ["requested", "matched", "accepted", "in_progress"]))
+    .where(
+      and(
+        inArray(rideRequest.status, ["requested", "matched", "accepted", "in_progress"]),
+        gt(rideRequest.createdAt, cutoff),
+      )
+    )
     .orderBy(desc(rideRequest.createdAt));
 
   const [passengers, drivers, profiles] = await Promise.all([
