@@ -46,6 +46,8 @@ type RideMatch = {
   routeEnd: string | null;
   serviceScore: number;
   tripsCompleted: number;
+  plateNumber?: string | null;
+  vehicleModel?: string | null;
 };
 
 type HistoryTrip = {
@@ -507,7 +509,7 @@ export default function PassengerDashboard() {
                 <p className="font-semibold text-sm text-foreground">{match?.name ?? "Driver"}</p>
                 <p className="text-xs text-muted-foreground">
                   {match
-                    ? `${match.routeStart ?? "-"} → ${match.routeEnd ?? "-"}`
+                    ? (match.vehicleModel ?? `${match.routeStart ?? "-"} → ${match.routeEnd ?? "-"}`)
                     : "Driver details loading…"}
                 </p>
                 <div className="flex items-center gap-2 mt-1">
@@ -565,7 +567,7 @@ export default function PassengerDashboard() {
                 <p className="font-semibold text-sm text-foreground">{match?.name ?? "Driver"}</p>
                 <p className="text-xs text-muted-foreground">
                   {match
-                    ? `${match.routeStart ?? "-"} → ${match.routeEnd ?? "-"}`
+                    ? (match.vehicleModel ?? `${match.routeStart ?? "-"} → ${match.routeEnd ?? "-"}`)
                     : "Driver details loading…"}
                 </p>
                 <div className="flex items-center gap-2 mt-1">

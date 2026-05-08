@@ -38,6 +38,52 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Ride request not found." }, { status: 404 });
   }
 
+  // For rides that already have an accepted driver, return their details directly.
+  // The availability search below excludes busy drivers, which would filter out the
+  // matched driver for accepted/in_progress rides, leaving matches empty.
+  if (
+    (ride.status === "accepted" || ride.status === "in_progress") &&
+    ride.matchedDriverId
+  ) {
+    const [driverRow] = await db
+      .select({
+        userId: driverUser.id,
+        name: driverUser.name,
+        email: driverUser.email,
+        routeStart: driverAvailability.routeStart,
+        routeEnd: driverAvailability.routeEnd,
+        serviceScore: driverProfile.serviceScore,
+        tripsCompleted: driverProfile.tripsCompleted,
+        plateNumber: driverProfile.plateNumber,
+        vehicleModel: driverProfile.vehicleModel,
+      })
+      .from(driverUser)
+      .leftJoin(driverAvailability, eq(driverAvailability.userId, driverUser.id))
+      .leftJoin(driverProfile, eq(driverProfile.userId, driverUser.id))
+      .where(eq(driverUser.id, ride.matchedDriverId))
+      .limit(1);
+
+    if (!driverRow) return NextResponse.json({ ride, matches: [] });
+
+    return NextResponse.json({
+      ride,
+      matches: [
+        {
+          driverId: driverRow.userId,
+          name: driverRow.name,
+          email: driverRow.email,
+          routeStart: driverRow.routeStart ?? null,
+          routeEnd: driverRow.routeEnd ?? null,
+          distanceKm: null,
+          serviceScore: driverRow.serviceScore ?? 0,
+          tripsCompleted: driverRow.tripsCompleted ?? 0,
+          plateNumber: driverRow.plateNumber ?? null,
+          vehicleModel: driverRow.vehicleModel ?? null,
+        },
+      ],
+    });
+  }
+
   const rejectedRows = await db
     .select({ driverId: rideRejection.driverId })
     .from(rideRejection)

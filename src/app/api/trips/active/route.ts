@@ -1,7 +1,7 @@
 import { authDriver } from "@/lib/auth-driver";
 import { authPassenger } from "@/lib/auth-passenger";
 import { db } from "@/db";
-import { rideRequest } from "@/db/schema";
+import { driverUser, passengerUser, rideRequest } from "@/db/schema";
 import { and, desc, eq, or } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
@@ -35,7 +35,17 @@ export async function GET() {
       .orderBy(desc(rideRequest.createdAt))
       .limit(1);
 
-    return NextResponse.json({ trip: trip ?? null, actor: "passenger" });
+    let counterpartName: string | null = null;
+    if (trip?.matchedDriverId) {
+      const [driver] = await db
+        .select({ name: driverUser.name })
+        .from(driverUser)
+        .where(eq(driverUser.id, trip.matchedDriverId))
+        .limit(1);
+      counterpartName = driver?.name ?? null;
+    }
+
+    return NextResponse.json({ trip: trip ?? null, actor: "passenger", counterpartName });
   }
 
   const [trip] = await db
@@ -54,5 +64,15 @@ export async function GET() {
     .orderBy(desc(rideRequest.createdAt))
     .limit(1);
 
-  return NextResponse.json({ trip: trip ?? null, actor: "driver" });
+  let counterpartName: string | null = null;
+  if (trip?.passengerId) {
+    const [passenger] = await db
+      .select({ name: passengerUser.name })
+      .from(passengerUser)
+      .where(eq(passengerUser.id, trip.passengerId))
+      .limit(1);
+    counterpartName = passenger?.name ?? null;
+  }
+
+  return NextResponse.json({ trip: trip ?? null, actor: "driver", counterpartName });
 }

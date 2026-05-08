@@ -11,6 +11,7 @@ import { use, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { getPusherClient } from "@/lib/pusher-client";
+import { fetchRoutePoints } from "@/lib/gebeta";
 
 type TripData = {
   id: string;
@@ -21,6 +22,10 @@ type TripData = {
   matchedDriverId: string | null;
   acceptedAt: string | null;
   startedAt: string | null;
+  pickupLat: number | null;
+  pickupLng: number | null;
+  destLat: number | null;
+  destLng: number | null;
 };
 
 export default function ActiveTripPage({ params }: { params: Promise<{ id: string }> }) {
@@ -44,22 +49,40 @@ export default function ActiveTripPage({ params }: { params: Promise<{ id: strin
       : null;
 
   const [trip, setTrip] = useState<TripData | null>(null);
+  const [counterpartName, setCounterpartName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [panicOpen, setPanicOpen] = useState(false);
   const [panicSent, setPanicSent] = useState(false);
   const [ending, setEnding] = useState(false);
   const [driverLocation, setDriverLocation] = useState<[number, number] | null>(null);
+  const [routePath, setRoutePath] = useState<[number, number][] | null>(null);
+  const [routeCenter, setRouteCenter] = useState<[number, number] | undefined>(undefined);
   const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     fetch("/api/trips/active", { credentials: "include" })
       .then((r) => r.json())
-      .then((data: { trip?: TripData | null }) => {
+      .then((data: { trip?: TripData | null; counterpartName?: string | null }) => {
         setTrip(data.trip ?? null);
+        setCounterpartName(data.counterpartName ?? null);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [id]);
+
+  // Fetch route polyline once trip coords are available
+  useEffect(() => {
+    if (!trip?.pickupLat || !trip?.pickupLng || !trip?.destLat || !trip?.destLng) return;
+    const from = { lat: trip.pickupLat, lng: trip.pickupLng };
+    const to = { lat: trip.destLat, lng: trip.destLng };
+    setRouteCenter([
+      (from.lng + to.lng) / 2,
+      (from.lat + to.lat) / 2,
+    ]);
+    fetchRoutePoints(from, to).then((pts) => {
+      if (pts && pts.length > 1) setRoutePath(pts);
+    });
+  }, [trip?.pickupLat, trip?.pickupLng, trip?.destLat, trip?.destLng]);
 
   // Passenger: subscribe to Pusher channel for live driver location
   useEffect(() => {
@@ -165,7 +188,7 @@ export default function ActiveTripPage({ params }: { params: Promise<{ id: strin
           <span className="font-semibold text-sm text-foreground">Live Trip</span>
           {!loading && trip && (
             <Badge variant="outline" className="text-xs border-border text-muted-foreground font-normal">
-              #{shortId}
+              {counterpartName ?? `#${shortId}`}
             </Badge>
           )}
         </div>
