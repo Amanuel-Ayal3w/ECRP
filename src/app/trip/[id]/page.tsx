@@ -218,8 +218,18 @@ export default function ActiveTripPage({ params }: { params: Promise<{ id: strin
         <AppMap
           heightClass="h-64"
           zoom={13}
+          center={routeCenter}
           className="rounded-xl overflow-hidden border border-border"
-          markers={driverLocation ? [{ id: "driver", lngLat: driverLocation, color: "#000000" }] : []}
+          routePath={routePath}
+          markers={[
+            ...(trip?.pickupLat && trip?.pickupLng
+              ? [{ id: "pickup", lngLat: [trip.pickupLng, trip.pickupLat] as [number, number], color: "#000000" }]
+              : []),
+            ...(trip?.destLat && trip?.destLng
+              ? [{ id: "dest", lngLat: [trip.destLng, trip.destLat] as [number, number], color: "#555555" }]
+              : []),
+            ...(driverLocation ? [{ id: "driver", lngLat: driverLocation, color: "#2563eb", icon: "car" as const }] : []),
+          ]}
         />
       </div>
 

@@ -12,6 +12,8 @@ export interface MarkerDef {
   lngLat: [number, number];
   color: string;
   onClick?: () => void;
+  /** Render a custom icon instead of the default pin. Currently supports "car". */
+  icon?: "car";
 }
 
 interface MapInnerProps {
@@ -22,6 +24,15 @@ interface MapInnerProps {
   userLocation?: [number, number] | null;
   /** Ordered [lng, lat] pairs to draw as a route line on the map */
   routePath?: [number, number][] | null;
+}
+
+function makeCarElement(color: string): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.style.cssText =
+    "width:36px;height:36px;display:flex;align-items:center;justify-content:center;" +
+    "border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.25);cursor:pointer";
+  wrap.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="${color}" stroke="${color}" stroke-width="0.5"><path d="M5 11l1.5-4.5h11L19 11"/><rect x="3" y="11" width="18" height="6" rx="2"/><circle cx="7.5" cy="18.5" r="1.5"/><circle cx="16.5" cy="18.5" r="1.5"/><path d="M3 14h18" stroke="#fff" stroke-width="0.8"/></svg>`;
+  return wrap;
 }
 
 function ensurePulseStyle() {
@@ -201,7 +212,9 @@ export default function MapInner({
 
     ref.clearMarkers();
     markers.forEach((m) => {
-      const marker = ref.addMarker({ color: m.color });
+      const marker = m.icon === "car"
+        ? ref.addMarker({ element: makeCarElement(m.color) })
+        : ref.addMarker({ color: m.color });
       marker.setLngLat(m.lngLat).addTo(map);
       if (m.onClick) marker.getElement().addEventListener("click", m.onClick);
     });
