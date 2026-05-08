@@ -21,6 +21,52 @@ const NAV_LINKS = [
   { label: "Safety",       href: "#how-it-works" },
 ];
 
+const TICKER_ITEMS = [
+  "Community Rides",
+  "Live GPS Tracking",
+  "Smart Route Matching",
+  "Telegram Auth",
+  "Panic Button Safety",
+  "Real-Time Pusher",
+  "Zero Fares",
+  "Service Scoring",
+  "Volunteer Drivers",
+  "Map-Powered Dispatch",
+];
+
+/* ── Typing hook ─────────────────────────────────────────────── */
+function useTypingSequence(
+  lines: string[],
+  speed = 100,
+  lineDelay = 380
+): { typed: string[]; cursorLine: number } {
+  const [pos, setPos] = useState(0);
+
+  // flatten lines into a char array with null separators between lines
+  const chars = lines.flatMap((line, i) =>
+    i < lines.length - 1 ? ([...line, null] as (string | null)[]) : ([...line] as (string | null)[])
+  );
+
+  useEffect(() => {
+    if (pos >= chars.length) return;
+    const delay = chars[pos] === null ? lineDelay : speed;
+    const timer = setTimeout(() => setPos((p) => p + 1), delay);
+    return () => clearTimeout(timer);
+  }, [pos]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // derive typed lines from pos — offset = sum of prior lines + their null separators
+  const typed = lines.map((line, i) => {
+    const offset = lines.slice(0, i).reduce((acc, l) => acc + l.length + 1, 0);
+    const take = Math.max(0, Math.min(pos - offset, line.length));
+    return line.slice(0, take);
+  });
+
+  const cursorLine = typed.findIndex((t, i) => t.length < lines[i].length);
+
+  return { typed, cursorLine: cursorLine === -1 ? lines.length : cursorLine };
+}
+
+/* ── Role dialog ─────────────────────────────────────────────── */
 function RoleAuthDialog({
   open,
   onOpenChange,
@@ -78,11 +124,8 @@ function RoleAuthDialog({
   );
 }
 
-function LandingHeader({
-  onSignIn,
-}: {
-  onSignIn: () => void;
-}) {
+/* ── Header ──────────────────────────────────────────────────── */
+function LandingHeader({ onSignIn }: { onSignIn: () => void }) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -116,7 +159,7 @@ function LandingHeader({
             </span>
           </Link>
 
-          {/* Desktop nav — centred */}
+          {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-1 absolute left-1/2 -translate-x-1/2">
             {NAV_LINKS.map((l) => (
               <Link
@@ -130,12 +173,11 @@ function LandingHeader({
           </nav>
 
           {/* Actions */}
-           <div className="flex items-center gap-2 flex-shrink-0">
-             <ThemeToggle />
-             <Button type="button" size="sm" className="h-8 px-3 text-xs font-medium" onClick={onSignIn}>
-               Sign In
-             </Button>
-            {/* Mobile hamburger */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <ThemeToggle />
+            <Button type="button" size="sm" className="h-8 px-3 text-xs font-medium" onClick={onSignIn}>
+              Sign In
+            </Button>
             <button
               className="md:hidden w-8 h-8 rounded-md border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
               onClick={() => setMenuOpen((o) => !o)}
@@ -175,13 +217,12 @@ function LandingHeader({
           </div>
         )}
       </header>
-
-      {/* Spacer so content doesn't hide under fixed header */}
       <div className="h-14" />
     </>
   );
 }
 
+/* ── Features data ───────────────────────────────────────────── */
 const FEATURES = [
   {
     num: "01",
@@ -213,58 +254,120 @@ const FEATURES = [
   },
 ];
 
+/* ── Hero heading with typing effect ────────────────────────── */
 function HeroHeading() {
-  const { theme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const strokeColor = "color-mix(in oklch, var(--foreground) 38%, transparent)";
 
-  const strokeColor = !mounted || theme === "dark"
-    ? "oklch(0.97 0 0 / 28%)"
-    : "oklch(0.1 0 0 / 22%)";
+  const { typed, cursorLine } = useTypingSequence(
+    ["Rides that move", "communities", "forward."],
+    100,
+    380
+  );
 
   return (
     <h1
-      className="text-[clamp(2rem,5.5vw,3.6rem)] font-extrabold leading-[1.0] mb-7 text-foreground"
+      className="text-[clamp(2rem,5.5vw,3.6rem)] font-extrabold leading-[1.08] mb-7 text-foreground"
       style={{ fontFamily: "var(--font-display)", letterSpacing: "-0.03em" }}
     >
-      Rides that move
-      <br />
-      <span
-        className="text-transparent select-none"
-        style={{ WebkitTextStroke: `1.5px ${strokeColor}` }}
-      >
-        communities
-      </span>{" "}
-      <span className="text-foreground">forward.</span>
+      <span className="block">
+        {typed[0]}
+        {cursorLine === 0 && (
+          <span className="cursor-blink inline-block w-[2px] h-[0.85em] ml-[2px] align-middle bg-foreground" />
+        )}
+      </span>
+      <span className="block">
+        <span
+          suppressHydrationWarning
+          className="text-transparent select-none"
+          style={{ WebkitTextStroke: `1.5px ${strokeColor}` }}
+        >
+          {typed[1]}
+        </span>
+        {cursorLine === 1 && (
+          <span className="cursor-blink inline-block w-[2px] h-[0.85em] ml-[2px] align-middle bg-foreground" />
+        )}
+        {typed[1] && " "}
+        <span className="text-foreground">
+          {typed[2]}
+        </span>
+        {cursorLine === 2 && (
+          <span className="cursor-blink inline-block w-[2px] h-[0.85em] ml-[2px] align-middle bg-foreground" />
+        )}
+      </span>
     </h1>
   );
 }
 
+/* ── Marquee ticker ──────────────────────────────────────────── */
+function MarqueeTicker() {
+  const items = [...TICKER_ITEMS, ...TICKER_ITEMS];
+  return (
+    <div className="relative z-10 border-y border-border overflow-hidden py-2.5 bg-background/30 backdrop-blur-sm">
+      <div className="marquee-track flex w-max">
+        {items.map((item, i) => (
+          <span
+            key={i}
+            className="px-5 text-[11px] font-mono text-muted-foreground flex items-center gap-2.5 whitespace-nowrap"
+          >
+            <span className="text-foreground/30 text-[8px]">◆</span>
+            {item}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Page ────────────────────────────────────────────────────── */
 export default function LandingPage() {
-  const { theme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+  const { resolvedTheme } = useTheme();
   const [rolePicker, setRolePicker] = useState<{
     open: boolean;
     mode: "signin" | "signup";
   }>({ open: false, mode: "signup" });
 
-  useEffect(() => setMounted(true), []);
-
   const openSignIn = () => setRolePicker({ open: true, mode: "signin" });
 
-  const dotColor = !mounted || theme === "dark"
-    ? "oklch(1 0 0 / 15%)"
-    : "oklch(0 0 0 / 10%)";
+  const dotColor = resolvedTheme === "light"
+    ? "oklch(0 0 0 / 4%)"
+    : "oklch(1 0 0 / 6%)";
 
-  const glowColor = !mounted || theme === "dark"
-    ? "oklch(1 0 0 / 5%)"
-    : "oklch(0 0 0 / 3%)";
+  const glowColor = resolvedTheme === "light"
+    ? "oklch(0 0 0 / 2%)"
+    : "oklch(1 0 0 / 4%)";
 
   return (
     <main className="min-h-screen bg-background flex flex-col relative overflow-hidden">
 
-      {/* Full-page dot grid */}
+      {/* Keyframes */}
+      <style>{`
+        @keyframes marquee {
+          from { transform: translateX(0); }
+          to   { transform: translateX(-50%); }
+        }
+        .marquee-track {
+          animation: marquee 28s linear infinite;
+        }
+        .marquee-track:hover {
+          animation-play-state: paused;
+        }
+        @keyframes cursor-blink {
+          0%, 100% { opacity: 1; }
+          50%       { opacity: 0; }
+        }
+        .cursor-blink {
+          animation: cursor-blink 1s step-end infinite;
+        }
+        @keyframes fade-up {
+          from { opacity: 0; transform: translateY(10px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .fade-up { animation: fade-up 0.55s ease both; }
+      `}</style>
+
+      {/* Dot grid — reduced opacity */}
       <div
+        suppressHydrationWarning
         className="fixed inset-0 pointer-events-none z-0"
         style={{
           backgroundImage: `radial-gradient(circle, ${dotColor} 1px, transparent 1px)`,
@@ -274,6 +377,7 @@ export default function LandingPage() {
 
       {/* Top glow */}
       <div
+        suppressHydrationWarning
         className="fixed top-0 left-1/2 -translate-x-1/2 w-[600px] h-[360px] pointer-events-none z-0"
         style={{
           background: `radial-gradient(ellipse at top, ${glowColor} 0%, transparent 70%)`,
@@ -290,19 +394,19 @@ export default function LandingPage() {
 
       {/* Hero */}
       <section className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 py-20 text-center max-w-2xl mx-auto w-full">
-        <div className="inline-flex items-center gap-2 border border-border rounded-full px-3.5 py-1 text-xs text-muted-foreground mb-8 bg-card/50 backdrop-blur-sm">
+        <div className="inline-flex items-center gap-2 border border-border rounded-full px-3.5 py-1 text-xs text-muted-foreground mb-8 bg-card/50 backdrop-blur-sm fade-up">
           <span className="w-1.5 h-1.5 rounded-full bg-foreground animate-pulse" />
           Community-Driven Ride Sharing
         </div>
 
         <HeroHeading />
 
-        <p className="text-muted-foreground text-[0.875rem] leading-relaxed max-w-sm mb-10 font-light">
+        <p className="text-muted-foreground text-[0.875rem] leading-relaxed max-w-sm mb-10 font-light fade-up" style={{ animationDelay: "0.15s" }}>
           ECRP connects everyday commuters with volunteer drivers. No fares, no contracts — just
           people helping people get from A to B.
         </p>
 
-        <div className="flex flex-col sm:flex-row gap-2.5 w-full max-w-[260px]">
+        <div className="flex flex-col sm:flex-row gap-2.5 w-full max-w-[260px] fade-up" style={{ animationDelay: "0.25s" }}>
           <Button type="button" className="w-full h-10 text-sm font-medium flex-1" onClick={openSignIn}>
             Sign In
           </Button>
@@ -314,11 +418,11 @@ export default function LandingPage() {
         </div>
 
         {/* Stats */}
-        <div className="flex items-center gap-6 mt-14 pt-6 border-t border-border w-full justify-center">
+        <div className="flex items-center gap-6 mt-14 pt-6 border-t border-border w-full justify-center fade-up" style={{ animationDelay: "0.35s" }}>
           {[
             { value: "2,400+", label: "Trips" },
-            { value: "340", label: "Drivers" },
-            { value: "4.9★", label: "Rating" },
+            { value: "340",    label: "Drivers" },
+            { value: "4.9★",   label: "Rating" },
           ].map((s) => (
             <div key={s.label} className="text-center">
               <p
@@ -332,6 +436,9 @@ export default function LandingPage() {
           ))}
         </div>
       </section>
+
+      {/* Rolling ticker */}
+      <MarqueeTicker />
 
       {/* Features */}
       <section id="how-it-works" className="relative z-10 border-t border-border">
@@ -356,7 +463,6 @@ export default function LandingPage() {
                 className={`border-b border-border ${isEven ? "bg-secondary/50" : "bg-transparent"}`}
               >
                 <div className="px-6 py-6 flex items-start gap-5">
-                  {/* Step number */}
                   <span
                     className="text-xs font-bold text-muted-foreground/50 select-none flex-shrink-0 w-6 pt-0.5 tabular-nums"
                     style={{ fontFamily: "var(--font-display)" }}
@@ -364,12 +470,10 @@ export default function LandingPage() {
                     {f.num}
                   </span>
 
-                  {/* Icon chip */}
                   <div className="w-8 h-8 rounded-md bg-secondary border border-border/60 flex items-center justify-center text-foreground flex-shrink-0">
                     {f.icon}
                   </div>
 
-                  {/* Text */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <h3
